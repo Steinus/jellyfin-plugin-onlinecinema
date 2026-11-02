@@ -78,7 +78,7 @@ public sealed class CatalogService
     public async Task<SeasonResult> SeasonAsync(int seriesId, int season, CancellationToken token)
     {
         if (seriesId < 1 || season < 0 || season > 200) throw new ArgumentException("Некорректный сезон.");
-        using using var response = await FetchAsync($"/3/tv/{seriesId}/season/{season}", null, token).ConfigureAwait(false);
+        using var response = await FetchAsync($"/3/tv/{seriesId}/season/{season}", null, token).ConfigureAwait(false);
         var eps = response.RootElement.Prop("episodes").Elements()
             .Select(e => new EpisodeInfo(e.Int("episode_number"), e.Str("name"), e.Str("overview"), Image(e.Str("still_path")), e.Str("air_date")))
             .ToArray();
