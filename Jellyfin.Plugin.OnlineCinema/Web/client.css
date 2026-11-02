@@ -55,3 +55,20 @@
 #oc-user-view .oc-episode-text p{color:#aab5c3;margin:7px 0}
 @media (min-width:1300px){#oc-user-view .oc-card{flex-basis:185px}#oc-user-view .oc-grid{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}}
 @media (max-width:650px){#oc-user-view .oc-shell{padding:14px 12px 40px}#oc-user-view .oc-source{display:none}#oc-user-view .oc-brand-name{font-size:18px}#oc-user-view .oc-scroll{display:none}#oc-user-view .oc-card{flex-basis:140px}#oc-user-view .oc-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}#oc-user-view .oc-detail-poster{flex-basis:130px}}
+
+/* Jellyfin-style compact poster wall. Existing horizontal shelves stay unchanged. */
+#oc-user-view .oc-wall-layout{display:grid;grid-template-columns:minmax(0,1fr) 22px;gap:8px;align-items:start}
+#oc-user-view .oc-grid.oc-wall{grid-template-columns:repeat(auto-fill,minmax(125px,1fr));gap:22px 14px;margin:18px 0}
+#oc-user-view .oc-card{background:transparent!important;border:0!important;border-radius:0!important;overflow:visible!important;min-width:0}
+#oc-user-view .oc-card-title{padding:7px 2px 2px;text-align:center;font-size:12px;line-height:1.25;min-height:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#oc-user-view .oc-card-footer{padding:2px 3px;font-size:11px}
+#oc-user-view .oc-library-tag{padding:2px 3px 5px;text-align:center;font-size:11px}
+#oc-user-view .oc-poster-frame{border-radius:9px;overflow:hidden;box-shadow:0 1px 4px #0008}
+#oc-user-view .oc-poster{border-radius:9px}
+#oc-user-view .oc-alphabet{position:sticky;top:10px;display:flex;flex-direction:column;align-items:center;gap:0;max-height:calc(100vh - 40px);overflow-y:auto;scrollbar-width:none}
+#oc-user-view .oc-alpha-letter{color:#c9d6e7!important;background:transparent!important;border:0!important;padding:2px 0!important;font-size:10px!important;min-height:17px;line-height:14px;width:20px;cursor:pointer}
+#oc-user-view .oc-alpha-letter:disabled{opacity:.22;cursor:default}
+#oc-user-view .oc-alpha-letter:not(:disabled):hover{color:#65acff!important;background:#344257!important}
+#oc-user-view .oc-release-row{display:flex;flex-direction:column;gap:5px;margin:7px 0;padding:11px;border:1px solid #303b48;border-radius:8px}
+@media(min-width:1500px){#oc-user-view .oc-grid.oc-wall{grid-template-columns:repeat(auto-fill,minmax(135px,1fr))}}
+@media(max-width:650px){#oc-user-view .oc-grid.oc-wall{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:13px 8px}#oc-user-view .oc-alphabet{top:5px}#oc-user-view .oc-wall-layout{grid-template-columns:minmax(0,1fr) 18px}}
