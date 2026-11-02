@@ -5,10 +5,14 @@
 <div id="OnlineCinemaPage" data-role="page" class="page type-interior pluginConfigurationPage">
  <div data-role="content"><div class="content-primary">
   <h2>Онлайн-кинотеатр — настройки</h2>
-  <p class="fieldDescription">Ранний каркас плагина: настройки сохраняются, каталог и воспроизведение пока не доступны.</p>
+  <p class="fieldDescription">Каталог TMDB и поиск раздач JacRed. Воспроизведение через TorrServer пока в разработке.</p>
   <form id="OnlineCinemaForm">
    <div class="inputContainer"><label class="inputLabel" for="OcTmdb">TMDB API Key</label><input is="emby-input" id="OcTmdb" type="password" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcLanguage">Язык каталога</label><input is="emby-input" id="OcLanguage" type="text" placeholder="ru-RU"></div>
+   <h3>Поиск раздач (JacRed напрямую)</h3>
+   <div class="inputContainer"><label class="inputLabel" for="OcJacRed">JacRed URL</label><input is="emby-input" id="OcJacRed" type="url" placeholder="https://jac.red"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcJacRedKey">JacRed API Key (если требуется)</label><input is="emby-input" id="OcJacRedKey" type="password" autocomplete="off"></div>
+   <h3>Prowlarr (необязательно)</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcProwlarr">Prowlarr URL</label><input is="emby-input" id="OcProwlarr" type="url" placeholder="http://192.168.1.10:9696"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcProwlarrKey">Prowlarr API Key</label><input is="emby-input" id="OcProwlarrKey" type="password" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
@@ -26,6 +30,7 @@
   var pluginId = 'e1c3807b-47d2-4dd8-a40d-e5e57990a621';
   var fields = {
    OcTmdb:'TmdbApiKey', OcLanguage:'Language',
+   OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
    OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
    OcTorrServer:'TorrServerUrl', OcUsername:'TorrServerUsername',
    OcPassword:'TorrServerPassword', OcPreferLocal:'PreferLocalLibrary',
