@@ -14,6 +14,8 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<CatalogService>();
         services.AddHttpClient("OnlineCinemaArtwork", client => client.Timeout = TimeSpan.FromSeconds(18));
         services.AddSingleton<TmdbImageService>();
+        services.AddHttpClient("OnlineCinemaJacRed", client => client.Timeout = TimeSpan.FromSeconds(25));
+        services.AddSingleton<JacRedService>();
         services.AddSingleton<IScheduledTask, ClientIntegrationTask>();
     }
 }
