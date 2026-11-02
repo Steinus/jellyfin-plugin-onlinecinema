@@ -308,30 +308,82 @@
         root.append(footer);
     }
 
-    async function showCollection(config, number) {
+    async function showCollection(config, number = 1) {
         state.currentCollection = config;
-        state.page = number;
+        state.page = 1;
         state.query = '';
-        const input = current()?.querySelector('#oc-search-input');
-        if (input) input.value = '';
+        const field = current()?.querySelector('#oc-search-input');
+        if (field) field.value = '';
         const { generation, root } = startScreen('collection');
         if (!root) return;
         root.append(button('oc-return', '← Все подборки', showHome));
         root.append(dom('h1', 'oc-page-title', config.icon + '  ' + config.title));
         root.append(dom('p', 'oc-lead', config.subtitle));
-        const grid = dom('div', 'oc-grid');
-        root.append(grid);
-        setWorking(grid, 'Загрузка фильмов и сериалов...');
-        try {
-            const response = page(await api(listingUrl(config, number)));
-            if (!validGeneration(generation)) return;
-            grid.replaceChildren();
-            if (!response.items.length) grid.append(dom('p', 'oc-message', 'В этой подборке пока ничего нет.'));
-            else response.items.forEach(media => grid.append(createPoster(media)));
-            addPager(root, response.totalPages, number, p => showCollection(config, p));
-        } catch (error) {
-            if (validGeneration(generation)) showError(grid, 'Ошибка загрузки: ' + apiError(error), () => showCollection(config, number));
-        }
+        const layout = dom('div', 'oc-wall-layout');
+        const grid = dom('div', 'oc-grid oc-wall');
+        const alphabet = dom('nav', 'oc-alphabet');
+        alphabet.setAttribute('aria-label', 'Алфавит по загруженным названиям');
+        layout.append(grid, alphabet);
+        root.append(layout);
+        const notice = dom('p', 'oc-message', 'Загрузка...');
+        root.append(notice);
+        const letters = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯABCDEFGHIJKLMNOPQRSTUVWXYZ#';
+        const buttons = new Map();
+        let loaded = 0, nextPage = 1, lastPage = 1, busy = false;
+        const seen = new Set();
+        const updateAlphabet = () => {
+            const indexed = new Map();
+            Array.from(grid.children).forEach(card => {
+                const letter = card.dataset.letter;
+                if (letter && !indexed.has(letter)) indexed.set(letter, card);
+            });
+            for (const [letter, control] of buttons) {
+                control.disabled = !indexed.has(letter);
+                control.title = control.disabled ? 'Буква ещё не загружена' : 'Перейти к загруженным названиям';
+                control.onclick = () => indexed.get(letter)?.scrollIntoView({behavior:'smooth',block:'center'});
+            }
+        };
+        letters.split('').forEach(letter => {
+            const x = button('oc-alpha-letter', letter, () => {});
+            x.disabled = true;
+            buttons.set(letter, x);alphabet.append(x);
+        });
+        const loadMore = async () => {
+            if (busy || nextPage > lastPage && loaded > 0 || !validGeneration(generation)) return;
+            busy = true;
+            notice.textContent = 'Подгружаем фильмы и сериалы...';
+            try {
+                const response = page(await api(listingUrl(config, nextPage)));
+                if (!validGeneration(generation)) return;
+                lastPage = Math.min(500, response.totalPages);
+                for (const media of response.items) {
+                    const key = media.type + ':' + media.id;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    const card = createPoster(media);
+                    const first = (media.title.trim().charAt(0) || '#').toUpperCase();
+                    card.dataset.letter = letters.includes(first) ? first : '#';
+                    grid.append(card);loaded++;
+                }
+                nextPage++;
+                updateAlphabet();
+                notice.textContent = nextPage > lastPage ? 'Все доступные результаты загружены (' + loaded + ').' : 'Загружено: ' + loaded + ' · прокрутите ниже';
+            } catch (error) {
+                if (validGeneration(generation)) {
+                    notice.replaceChildren(dom('span', '', 'Ошибка загрузки: ' + apiError(error) + ' '),
+                        button('oc-button', 'Повторить', loadMore));
+                }
+            } finally {busy = false;}
+        };
+        const watch = () => {
+            if (!validGeneration(generation)) {current()?.removeEventListener('scroll', watch);return;}
+            const view = current();
+            if (view.scrollTop + view.clientHeight >= view.scrollHeight - 900) loadMore();
+        };
+        current().addEventListener('scroll', watch, {passive:true});
+        await loadMore();
+        // Fill large viewports before a user needs to scroll.
+        if (validGeneration(generation)) watch();
     }
 
     async function showSearch(query, type, number) {
@@ -453,6 +505,8 @@
                     }
                 });
                 text.append(findReleases);
+                // Trigger the first JacRed search automatically for online titles.
+                findReleases.click();
             }
             text.append(dom('p', 'oc-note', 'Воспроизведение через TorrServer ещё не подключено.'));
             header.append(poster, text);
