@@ -72,3 +72,5 @@
 #oc-user-view .oc-release-row{display:flex;flex-direction:column;gap:5px;margin:7px 0;padding:11px;border:1px solid #303b48;border-radius:8px}
 @media(min-width:1500px){#oc-user-view .oc-grid.oc-wall{grid-template-columns:repeat(auto-fill,minmax(135px,1fr))}}
 @media(max-width:650px){#oc-user-view .oc-grid.oc-wall{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:13px 8px}#oc-user-view .oc-alphabet{top:5px}#oc-user-view .oc-wall-layout{grid-template-columns:minmax(0,1fr) 18px}}
+
+#oc-user-view .oc-file-picker{margin:14px 0;padding:16px;border:1px solid #455568;border-radius:9px}#oc-user-view .oc-file-button{display:block;padding:10px 14px;margin:8px 0;max-width:100%;word-break:break-all;text-align:left;background:#263e55;color:#fff;border:1px solid #50749b;border-radius:7px;cursor:pointer}#oc-user-view .oc-video{width:100%;max-width:950px;min-height:250px;background:#000;border-radius:10px}
