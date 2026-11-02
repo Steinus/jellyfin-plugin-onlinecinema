@@ -14,7 +14,7 @@ public sealed class CinemaController : ControllerBase
     public CinemaController(CatalogService catalog) => _catalog = catalog;
 
     [HttpGet("status")]
-    public object Status() => new { configured = _catalog.Configured, version = "0.1.0", catalog = "TMDB" };
+    public object Status() => new { configured = _catalog.Configured, version = "0.1.3", catalog = "TMDB" };
 
     [HttpGet("discover")]
     public async Task<ActionResult<CatalogResult>> Discover(
