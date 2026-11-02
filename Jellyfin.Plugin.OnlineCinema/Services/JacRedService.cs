@@ -14,16 +14,18 @@ public sealed class JacRedService
 {
     private readonly IHttpClientFactory _clients;
     private readonly ILogger<JacRedService> _logger;
+    private readonly TorrentSelections _selections;
     private int _attempts;
     private int _lastHttpStatus;
     private int _lastResultCount;
     private string _lastError = string.Empty;
     private DateTimeOffset? _lastAttempt;
 
-    public JacRedService(IHttpClientFactory clients, ILogger<JacRedService> logger)
+    public JacRedService(IHttpClientFactory clients, ILogger<JacRedService> logger, TorrentSelections selections)
     {
         _clients = clients;
         _logger = logger;
+        _selections = selections;
     }
 
     public bool Configured => !string.IsNullOrWhiteSpace(Plugin.Instance?.Configuration.JacRedUrl);
@@ -150,9 +152,9 @@ public sealed class JacRedService
             if (results.ValueKind != JsonValueKind.Array)
                 throw new JsonException("JacRed JSON не содержит массива Results.");
 
-            var torrents = results.EnumerateArray().Take(100).Select(x => new TorrentResult(
-                x.Str("MagnetUri").Length > 0 ? "magnet" : "release",
-                x.Str("Title"), x.Str("Tracker"), x.Long("Size"), x.Int("Seeders")))
+            var torrents = results.EnumerateArray().Take(100).Select(x => _selections.Register(new TorrentRelease(
+                x.Str("Title"), x.Str("Tracker"), x.Long("Size"), x.Int("Seeders"),
+                x.Str("MagnetUri"), x.Str("Link"), "jackett")))
                 .Where(x => !string.IsNullOrWhiteSpace(x.Title)).ToArray();
             _lastResultCount = torrents.Length;
             _logger.LogInformation("Online Cinema: JacRed returned {Count} releases in {Ms} ms",
