@@ -124,6 +124,14 @@
         return client.getJSON(client.getUrl('OnlineCinema/' + route));
     }
 
+    function artworkUrl(value) {
+        if (!value) return '';
+        if (value.startsWith('OnlineCinema/images/')) {
+            return window.ApiClient.getUrl(value);
+        }
+        return value;
+    }
+
     function listingUrl(config, number) {
         return 'discover?type=' + encodeURIComponent(config.type) +
             '&category=' + encodeURIComponent(config.category) +
@@ -138,7 +146,7 @@
             const poster = dom('img', 'oc-poster');
             poster.loading = 'lazy';
             poster.alt = media.title;
-            poster.src = media.posterUrl;
+            poster.src = artworkUrl(media.posterUrl);
             poster.addEventListener('error', () => {
                 poster.removeAttribute('src');
                 frame.classList.add('oc-no-poster');
@@ -391,7 +399,7 @@
             const poster = dom('div', 'oc-detail-poster');
             if (info.posterUrl) {
                 const image = dom('img');
-                image.src = info.posterUrl;
+                image.src = artworkUrl(info.posterUrl);
                 image.alt = info.title;
                 poster.append(image);
             }
@@ -411,7 +419,42 @@
                     location.hash = '#!/details?id=' + encodeURIComponent(info.localItemId);
                 }));
             }
-            text.append(dom('p', 'oc-note', 'Выбор торрент-раздач и запуск через TorrServer добавим на следующем этапе.'));
+            if (!info.localItemId) {
+                const findReleases = button('oc-primary-button', 'Найти торренты (JacRed)', async () => {
+                    const resultPanel = dom('div', 'oc-releases');
+                    text.querySelector('.oc-releases')?.remove();
+                    text.append(resultPanel);
+                    setWorking(resultPanel, 'Поиск раздач в JacRed...');
+                    try {
+                        const route = 'JacRed/search?title=' + encodeURIComponent(info.title) +
+                            '&original=' + encodeURIComponent(info.originalTitle) +
+                            '&year=' + encodeURIComponent(info.year) +
+                            '&series=' + (info.type === 'tv');
+                        const result = await api(route);
+                        if (!validGeneration(generation)) return;
+                        resultPanel.replaceChildren();
+                        const releases = Array.isArray(result) ? result : [];
+                        if (!releases.length) {
+                            resultPanel.append(dom('p', 'oc-message', 'JacRed не нашёл подходящих раздач.'));
+                        }
+                        releases.forEach(raw => {
+                            const title = String(read(raw, 'title', 'Раздача'));
+                            const tracker = String(read(raw, 'indexer', ''));
+                            const size = Number(read(raw, 'size', 0));
+                            const seeds = Number(read(raw, 'seeders', 0));
+                            const row = dom('div', 'oc-release-row');
+                            row.append(dom('strong', '', title));
+                            row.append(dom('span', 'oc-detail-meta',
+                                tracker + ' · ' + (size > 0 ? (size / (1024 ** 3)).toFixed(2) + ' ГБ · ' : '') + 'Сиды: ' + seeds));
+                            resultPanel.append(row);
+                        });
+                    } catch (error) {
+                        if (validGeneration(generation)) showError(resultPanel, 'Ошибка JacRed: ' + apiError(error), null);
+                    }
+                });
+                text.append(findReleases);
+            }
+            text.append(dom('p', 'oc-note', 'Воспроизведение через TorrServer ещё не подключено.'));
             header.append(poster, text);
             panel.append(header);
             if (info.type === 'tv' && response.seasons.length) {
@@ -434,7 +477,7 @@
                                 const row = dom('div', 'oc-episode');
                                 if (episode.stillUrl) {
                                     const still = dom('img', 'oc-still');
-                                    still.src = episode.stillUrl;
+                                    still.src = artworkUrl(episode.stillUrl);
                                     still.alt = '';
                                     still.loading = 'lazy';
                                     row.append(still);
