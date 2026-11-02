@@ -541,13 +541,25 @@
                                                     setWorking(zone, 'Подготавливаем воспроизведение...');
                                                     try {
                                                         const info = await apiPost('TorrServer/select', {session, fileIndex:index});
-                                                        const player = dom('video','oc-video');
-                                                        player.controls = true;
-                                                        player.autoplay = true;
-                                                        player.playsInline = true;
-                                                        player.src = window.ApiClient.getUrl(read(info,'url',''));
-                                                        zone.replaceChildren(player, dom('p','oc-note','Некоторые MKV/AVI и кодеки браузер не поддерживает. В этой версии используется встроенный HTML5-плеер.'));
-                                                        player.play().catch(() => {});
+                                                        const itemId = read(info, 'itemId', '');
+                                                        if (!itemId) throw Error('Jellyfin не вернул ID видео.');
+                                                        // Trigger Jellyfin Web's own itemAction=play handler.
+                                                        // This uses the native playbackManager and its full OSD,
+                                                        // not a custom video tag inside the catalog.
+                                                        const trigger = dom('button', 'itemAction');
+                                                        trigger.type = 'button';
+                                                        trigger.hidden = true;
+                                                        trigger.dataset.action = 'play';
+                                                        trigger.dataset.id = itemId;
+                                                        trigger.dataset.serverid = window.ApiClient.serverId();
+                                                        trigger.dataset.type = 'Movie';
+                                                        trigger.dataset.mediatype = 'Video';
+                                                        trigger.dataset.isfolder = 'false';
+                                                        document.body.append(trigger);
+                                                        zone.replaceChildren(dom('p','oc-message','Открываем штатный плеер Jellyfin...'));
+                                                        trigger.click();
+                                                        trigger.remove();
+
                                                     } catch (error) {showError(zone,apiError(error),null);}
                                                 }));
                                             });
