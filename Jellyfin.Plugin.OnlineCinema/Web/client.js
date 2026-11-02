@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV018) return;
-    window.__onlineCinemaV013 = true;
+    if (window.__onlineCinemaV0110) return;
+    window.__onlineCinemaV0110 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -516,7 +516,8 @@
                                 row.append(button('oc-primary-button', 'Выбрать раздачу', async () => {
                                     const zone = dom('div', 'oc-file-picker');
                                     resultPanel.querySelector('.oc-file-picker')?.remove();
-                                    resultPanel.append(zone);
+                                    row.after(zone);
+                                    zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                                     setWorking(zone, 'Подключение к TorrServer...');
                                     try {
                                         const initial = await apiPost('TorrServer/prepare', { key: read(raw,'key','') });
@@ -533,7 +534,7 @@
                                                 return;
                                             }
                                             zone.append(dom('h3','','Выберите видеофайл'));
-                                            files.filter(file => /\\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(read(file,'path',''))).forEach(file => {
+                                            files.filter(file => /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(read(file,'path',''))).forEach(file => {
                                                 const label = read(file,'path','');
                                                 const index = Number(read(file,'id',0));
                                                 zone.append(button('oc-file-button', label, async () => {
@@ -552,7 +553,21 @@
                                             });
                                         };
                                         await showFiles();
-                                    } catch (error) {showError(zone, 'TorrServer: ' + apiError(error), null);}
+                                    } catch (error) {
+                                        showError(zone, 'TorrServer: ' + apiError(error), null);
+                                        zone.append(button('oc-button', 'Проверить соединение с TorrServer', async () => {
+                                            const diagnostic = dom('p', 'oc-message', 'Проверяем подключение...');
+                                            zone.append(diagnostic);
+                                            try {
+                                                const test = await api('TorrServer/diagnose');
+                                                const address = String(read(test, 'host', '')) + ':' + String(read(test, 'port', ''));
+                                                diagnostic.textContent = (read(test, 'connected', false) ? 'Соединение есть. ' : 'Нет соединения. ') +
+                                                    address + ' — ' + String(read(test, 'error', read(test, 'message', 'Нет ответа')));
+                                            } catch (e) {
+                                                diagnostic.textContent = 'Не удалось выполнить диагностику: ' + apiError(e);
+                                            }
+                                        }));
+                                    }
                                 }));
                             } else {
                                 row.append(dom('span', 'oc-note', 'Нет magnet-ссылки — запуск пока недоступен'));
