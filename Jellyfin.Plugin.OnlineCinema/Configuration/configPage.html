@@ -5,7 +5,7 @@
 <div id="OnlineCinemaPage" data-role="page" class="page type-interior pluginConfigurationPage">
  <div data-role="content"><div class="content-primary">
   <h2>Онлайн-кинотеатр — настройки</h2>
-  <p class="fieldDescription">Каталог TMDB и поиск раздач JacRed. Воспроизведение через TorrServer пока в разработке.</p>
+  <p class="fieldDescription">Каталог TMDB и поиск раздач JacRed. Тестовое воспроизведение через TorrServer. Используйте кнопку проверки после сохранения настроек.</p>
   <form id="OnlineCinemaForm">
    <div class="inputContainer"><label class="inputLabel" for="OcTmdb">TMDB API Key</label><input is="emby-input" id="OcTmdb" type="password" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcLanguage">Язык каталога</label><input is="emby-input" id="OcLanguage" type="text" placeholder="ru-RU"></div>
@@ -30,6 +30,10 @@
    </div>
    <h3>Потоковый сервер</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
+   <div class="inputContainer">
+     <button is="emby-button" type="button" class="raised emby-button" id="OcTestTorrServer">Проверить подключение к TorrServer</button>
+     <div id="OcTorrServerTestResult" class="fieldDescription" style="white-space:pre-wrap;margin-top:10px;" aria-live="polite"></div>
+   </div>
    <div class="inputContainer"><label class="inputLabel" for="OcUsername">TorrServer пользователь</label><input is="emby-input" id="OcUsername" type="text" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcPassword">TorrServer пароль</label><input is="emby-input" id="OcPassword" type="password" autocomplete="off"></div>
    <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcPreferLocal" type="checkbox"><span>Предпочитать локальную библиотеку</span></label></div>
@@ -56,6 +60,18 @@
     page.querySelector('#OcProwlarrGroup').style.display=active==='prowlarr'?'':'none';
   }
   page.querySelector('#OcProvider').addEventListener('change',updateProvider);
+  page.querySelector('#OcTestTorrServer').addEventListener('click', async function() {
+    var output=page.querySelector('#OcTorrServerTestResult');
+    output.textContent='Проверяем сохранённые настройки TorrServer...';
+    try {
+      var data=await ApiClient.getJSON(ApiClient.getUrl('OnlineCinema/TorrServer/diagnose'));
+      output.textContent=(data.connected ? 'Успешно. ' : 'Ошибка. ') +
+        (data.host ? 'Адрес: '+data.host+':'+data.port+'. ' : '') +
+        (data.error || data.message || 'Нет данных');
+    } catch (error) {
+      output.textContent='Не удалось выполнить проверку: '+(error.message || error.statusText || 'неизвестная ошибка');
+    }
+  });
   page.addEventListener('pageshow', function () {
    Dashboard.showLoadingMsg();
    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
