@@ -1,17 +1,34 @@
 (function(){
 'use strict';
-if(window.__onlineCinemaV011)return;window.__onlineCinemaV011=true;
+if(window.__onlineCinemaV012)return;window.__onlineCinemaV011=true;
 const state={type:'movie',page:1,total:1,query:'',busy:false};
 const id='oc-user-view';
 const api=path=>{const client=window.ApiClient;if(!client)throw Error('Jellyfin API is not ready');return client.getJSON(client.getUrl('OnlineCinema/'+path));};
 const el=(tag,cls,txt)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(txt!==undefined)node.textContent=txt;return node;};
 function menu(){
- const target=document.querySelector('.mainDrawer-scrollContainer .userMenuOptions,.mainDrawer-scrollContainer');
- if(!target||document.querySelector('#oc-user-link'))return;
- const a=el('a','navMenuOption','Онлайн-кинотеатр');a.id='oc-user-link';a.href='#/online-cinema';
+ const existing=document.getElementById('oc-user-link');
+ if(existing && existing.isConnected)return;
+ // Jellyfin 12 uses a React/MUI drawer, not the old userMenuOptions container.
+ const target=document.querySelector('.MuiDrawer-paper ul[aria-labelledby="libraries-subheader"]')
+ || document.querySelector('.MuiDrawer-paper ul')
+ || document.querySelector('.mainDrawer-scrollContainer .userMenuOptions,.mainDrawer-scrollContainer');
+ if(!target)return;
+ const wrapper=el('li','oc-menu-item');
+ wrapper.id='oc-user-menu-item';
+ const a=el('a','oc-menu-link','🎬  Онлайн-кинотеатр');
+ a.id='oc-user-link';a.href='#/online-cinema';
  a.addEventListener('click',event=>{event.preventDefault();open();});
- target.append(a);
+ wrapper.append(a);target.append(wrapper);
 }
+function homeEntry(){
+ // Fallback for users who do not open the drawer; keep the catalog in the user UI.
+ const target=document.querySelector('#homeTab .sections');
+ if(!target || target.querySelector('#oc-home-entry'))return;
+ const button=el('button','oc-home-entry','🎬  Онлайн-кинотеатр');
+ button.id='oc-home-entry';button.onclick=open;
+ target.prepend(button);
+}
+
 function open(){
  location.hash='#/online-cinema';
  let view=document.getElementById(id);
@@ -82,8 +99,8 @@ async function detailsPage(item){
   status.textContent='';
  }catch(e){status.textContent='Не удалось загрузить карточку: '+e.message;}
 }
-const observer=new MutationObserver(()=>{menu();const v=document.getElementById(id);if(v&&!v.hidden&&!location.hash.startsWith('#/online-cinema'))close();});
-function init(){if(!document.body)return;observer.observe(document.body,{childList:true,subtree:true});menu();if(location.hash.startsWith('#/online-cinema'))open();}
+const observer=new MutationObserver(()=>{menu();homeEntry();const v=document.getElementById(id);if(v&&!v.hidden&&!location.hash.startsWith('#/online-cinema'))close();});
+function init(){if(!document.body)return;observer.observe(document.body,{childList:true,subtree:true});menu();homeEntry();if(location.hash.startsWith('#/online-cinema'))open();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 window.addEventListener('hashchange',()=>{if(location.hash.startsWith('#/online-cinema')){const v=document.getElementById(id);if(!v||v.hidden)open();}else close();});
 })();
