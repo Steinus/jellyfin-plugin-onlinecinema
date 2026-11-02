@@ -31,8 +31,8 @@ public static class ClientWebPatch
             return source;
 
         const string injection =
-            "<link data-online-cinema-integration rel=\"stylesheet\" href=\"../OnlineCinema/Web/client.css?v=0.1.9\" />" +
-            "<script defer src=\"../OnlineCinema/Web/client.js?v=0.1.9\"></script>";
+            "<link data-online-cinema-integration rel=\"stylesheet\" href=\"../OnlineCinema/Web/client.css?v=0.1.10\" />" +
+            "<script defer src=\"../OnlineCinema/Web/client.js?v=0.1.10\"></script>";
 
         if (source.IndexOf("</head>", StringComparison.OrdinalIgnoreCase) < 0)
             return source;
