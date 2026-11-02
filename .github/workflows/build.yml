@@ -18,6 +18,8 @@ jobs:
         run: dotnet restore Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj
       - name: Compile
         run: dotnet build Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj --no-restore -c Release
+      - name: Validate web client JavaScript
+        run: node --check Jellyfin.Plugin.OnlineCinema/Web/client.js
       - name: Prepare plugin files
         run: |
           mkdir -p pkg
