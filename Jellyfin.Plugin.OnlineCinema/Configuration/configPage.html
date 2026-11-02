@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>Online Cinema</title></head>
+<body>
+<div id="OnlineCinemaPage" data-role="page" class="page type-interior pluginConfigurationPage">
+ <div data-role="content"><div class="content-primary">
+  <h2>Онлайн-кинотеатр — настройки</h2>
+  <p class="fieldDescription">Ранний каркас плагина: настройки сохраняются, каталог и воспроизведение пока не доступны.</p>
+  <form id="OnlineCinemaForm">
+   <div class="inputContainer"><label class="inputLabel" for="OcTmdb">TMDB API Key</label><input is="emby-input" id="OcTmdb" type="password" autocomplete="off"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcLanguage">Язык каталога</label><input is="emby-input" id="OcLanguage" type="text" placeholder="ru-RU"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcProwlarr">Prowlarr URL</label><input is="emby-input" id="OcProwlarr" type="url" placeholder="http://192.168.1.10:9696"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcProwlarrKey">Prowlarr API Key</label><input is="emby-input" id="OcProwlarrKey" type="password" autocomplete="off"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcUsername">TorrServer пользователь</label><input is="emby-input" id="OcUsername" type="text" autocomplete="off"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcPassword">TorrServer пароль</label><input is="emby-input" id="OcPassword" type="password" autocomplete="off"></div>
+   <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcPreferLocal" type="checkbox"><span>Предпочитать локальную библиотеку</span></label></div>
+   <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcGlobal" type="checkbox"><span>Включить в будущем поиск из общего поиска Jellyfin</span></label></div>
+   <button is="emby-button" class="raised button-submit emby-button" type="submit"><span>Сохранить</span></button>
+  </form>
+ </div></div>
+ <script>
+ (function () {
+  'use strict';
+  var page = document.querySelector('#OnlineCinemaPage');
+  var pluginId = 'e1c3807b-47d2-4dd8-a40d-e5e57990a621';
+  var fields = {
+   OcTmdb:'TmdbApiKey', OcLanguage:'Language',
+   OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
+   OcTorrServer:'TorrServerUrl', OcUsername:'TorrServerUsername',
+   OcPassword:'TorrServerPassword', OcPreferLocal:'PreferLocalLibrary',
+   OcGlobal:'ShowGlobalSearchResults'
+  };
+  page.addEventListener('pageshow', function () {
+   Dashboard.showLoadingMsg();
+   ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+    Object.keys(fields).forEach(function (id) {
+     var el=page.querySelector('#'+id);
+     if(el.type==='checkbox') el.checked=!!config[fields[id]];
+     else el.value=config[fields[id]]||'';
+    });
+    Dashboard.hideLoadingMsg();
+   }).catch(function () { Dashboard.hideLoadingMsg(); Dashboard.alert('Не удалось загрузить настройки'); });
+  });
+  page.querySelector('#OnlineCinemaForm').addEventListener('submit',function(ev) {
+   ev.preventDefault();
+   Dashboard.showLoadingMsg();
+   ApiClient.getPluginConfiguration(pluginId).then(function(config) {
+    Object.keys(fields).forEach(function(id) {
+     var el=page.querySelector('#'+id);
+     config[fields[id]]=el.type==='checkbox'?el.checked:el.value.trim();
+    });
+    return ApiClient.updatePluginConfiguration(pluginId,config);
+   }).then(function () {
+    Dashboard.hideLoadingMsg();
+    Dashboard.processPluginConfigurationUpdateResult({});
+   }).catch(function() { Dashboard.hideLoadingMsg(); Dashboard.alert('Не удалось сохранить настройки'); });
+  });
+ })();
+ </script>
+</div>
+</body>
+</html>
