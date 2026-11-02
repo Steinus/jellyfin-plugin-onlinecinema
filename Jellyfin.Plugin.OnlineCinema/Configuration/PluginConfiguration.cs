@@ -6,6 +6,9 @@ public sealed class PluginConfiguration : BasePluginConfiguration
 {
     public string TmdbApiKey { get; set; } = string.Empty;
     public string Language { get; set; } = "ru-RU";
+    // "jackett" searches JacRed's Jackett-compatible API; "prowlarr" uses Prowlarr's REST API.
+    // Retain "jackett" as default for users upgrading from 0.1.6.
+    public string TorrentSearchProvider { get; set; } = "jackett";
     public string JacRedUrl { get; set; } = string.Empty;
     public string JacRedApiKey { get; set; } = string.Empty;
     public string ProwlarrUrl { get; set; } = string.Empty;
