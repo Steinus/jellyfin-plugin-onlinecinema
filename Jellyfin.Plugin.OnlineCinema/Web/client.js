@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV013) return;
+    if (window.__onlineCinemaV018) return;
     window.__onlineCinemaV013 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
@@ -122,6 +122,17 @@
             throw new Error('Jellyfin API пока не доступен.');
         }
         return client.getJSON(client.getUrl('OnlineCinema/' + route));
+    }
+
+    function apiPost(route, data) {
+        const client = window.ApiClient;
+        return client.ajax({
+            type: 'POST',
+            url: client.getUrl('OnlineCinema/' + route),
+            data: JSON.stringify(data),
+            contentType: 'application/json',
+            dataType: 'json'
+        });
     }
 
     function artworkUrl(value) {
@@ -498,6 +509,51 @@
                             row.append(dom('strong', '', title));
                             row.append(dom('span', 'oc-detail-meta',
                                 tracker + ' · ' + (size > 0 ? (size / (1024 ** 3)).toFixed(2) + ' ГБ · ' : '') + 'Сиды: ' + seeds));
+                            if (read(raw, 'playable', false)) {
+                                row.append(button('oc-primary-button', 'Выбрать раздачу', async () => {
+                                    const zone = dom('div', 'oc-file-picker');
+                                    resultPanel.querySelector('.oc-file-picker')?.remove();
+                                    resultPanel.append(zone);
+                                    setWorking(zone, 'Подключение к TorrServer...');
+                                    try {
+                                        const initial = await apiPost('TorrServer/prepare', { key: read(raw,'key','') });
+                                        const session = read(initial, 'session', '');
+                                        if (!session) throw Error('TorrServer не вернул сеанс.');
+                                        const showFiles = async () => {
+                                            if (!validGeneration(generation)) return;
+                                            const current = await api('TorrServer/files/' + encodeURIComponent(session));
+                                            const files = read(current, 'files', []);
+                                            zone.replaceChildren();
+                                            if (!files.length) {
+                                                zone.append(dom('p','oc-message','Ожидание метаданных торрента...'));
+                                                zone.append(button('oc-button', 'Проверить ещё раз', showFiles));
+                                                return;
+                                            }
+                                            zone.append(dom('h3','','Выберите видеофайл'));
+                                            files.filter(file => /\\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(read(file,'path',''))).forEach(file => {
+                                                const label = read(file,'path','');
+                                                const index = Number(read(file,'id',0));
+                                                zone.append(button('oc-file-button', label, async () => {
+                                                    setWorking(zone, 'Подготавливаем воспроизведение...');
+                                                    try {
+                                                        const info = await apiPost('TorrServer/select', {session, fileIndex:index});
+                                                        const player = dom('video','oc-video');
+                                                        player.controls = true;
+                                                        player.autoplay = true;
+                                                        player.playsInline = true;
+                                                        player.src = window.ApiClient.getUrl(read(info,'url',''));
+                                                        zone.replaceChildren(player, dom('p','oc-note','Некоторые MKV/AVI и кодеки браузер не поддерживает. В этой версии используется встроенный HTML5-плеер.'));
+                                                        player.play().catch(() => {});
+                                                    } catch (error) {showError(zone,apiError(error),null);}
+                                                }));
+                                            });
+                                        };
+                                        await showFiles();
+                                    } catch (error) {showError(zone, 'TorrServer: ' + apiError(error), null);}
+                                }));
+                            } else {
+                                row.append(dom('span', 'oc-note', 'Нет magnet-ссылки — запуск пока недоступен'));
+                            }
                             resultPanel.append(row);
                         });
                     } catch (error) {
