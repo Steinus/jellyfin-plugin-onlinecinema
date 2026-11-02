@@ -10,7 +10,8 @@ namespace Jellyfin.Plugin.OnlineCinema.Api;
 public sealed class TorrServerController : ControllerBase
 {
     private readonly TorrServerService _server;
-    public TorrServerController(TorrServerService server) => _server = server;
+    private readonly NativePlaybackRegistry _native;
+    public TorrServerController(TorrServerService server, NativePlaybackRegistry native) { _server = server; _native = native; }
 
     [Authorize]
     [HttpGet("diagnose")]
@@ -40,7 +41,13 @@ public sealed class TorrServerController : ControllerBase
     [HttpPost("select")]
     public async Task<IActionResult> Select([FromBody] PlaySelection input, CancellationToken token)
     {
-        try { return Ok(await _server.SelectAsync(input.Session, input.FileIndex, token)); }
+        try
+        {
+            var selected = await _server.SelectAsync(input.Session, input.FileIndex, token);
+            var title = Path.GetFileNameWithoutExtension(selected.FileName);
+            var id = _native.Register(title, selected.Url, selected.FileName);
+            return Ok(new { itemId = id.ToString("N"), fileName = selected.FileName, mode = "jellyfin-native" });
+        }
         catch (Exception e) when (e is ArgumentException or KeyNotFoundException)
         { return BadRequest(new { error = e.Message }); }
         catch (HttpRequestException e) { return StatusCode(502, new { error = e.Message }); }
