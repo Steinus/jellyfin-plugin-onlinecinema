@@ -6,6 +6,8 @@ public sealed class PluginConfiguration : BasePluginConfiguration
 {
     public string TmdbApiKey { get; set; } = string.Empty;
     public string Language { get; set; } = "ru-RU";
+    public string JacRedUrl { get; set; } = string.Empty;
+    public string JacRedApiKey { get; set; } = string.Empty;
     public string ProwlarrUrl { get; set; } = string.Empty;
     public string ProwlarrApiKey { get; set; } = string.Empty;
     public string TorrServerUrl { get; set; } = string.Empty;
