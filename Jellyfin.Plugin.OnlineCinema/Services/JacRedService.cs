@@ -43,7 +43,8 @@ public sealed class JacRedService
             lastResultCount = _lastResultCount,
             lastAttempt = _lastAttempt,
             lastError = _lastError,
-            note = "Requests originate from Jellyfin server, not from the browser. Check /OnlineCinema/JacRed/search in F12."
+            userAgent = "Jell-Stein",
+            note = "Outbound requests originate from Jellyfin and use User-Agent Jell-Stein; direct browser navigation to this status endpoint returns 401 without the Jellyfin authorization header."
         };
     }
 
@@ -91,20 +92,30 @@ public sealed class JacRedService
             throw new ArgumentException("Некорректное название фильма или сериала.");
 
         var endpoint = ResolveEndpoint(config.JacRedUrl);
+        // Use the same Jackett query shape as the working Lampa request.
+        // Some JacRed/nginx installations apply client filtering to requests
+        // without a User-Agent (HttpClient doesn't send one by default).
         var parameters = new Dictionary<string, string>
         {
-            ["query"] = title.Trim(),
+            ["apikey"] = string.Empty,
+            ["Query"] = title.Trim(),
             ["title"] = title.Trim(),
             ["title_original"] = original?.Trim() ?? string.Empty,
             ["year"] = year?.Trim() ?? string.Empty,
-            ["is_serial"] = series ? "2" : "1"
+            ["is_serial"] = series ? "2" : "1",
+            ["Category[]"] = series ? "5000" : "2000"
         };
-        var query = string.Join("&", parameters.Where(p => !string.IsNullOrWhiteSpace(p.Value))
+        var query = string.Join("&", parameters.Where(p => p.Key == "apikey" || !string.IsNullOrWhiteSpace(p.Value))
             .Select(p => Uri.EscapeDataString(p.Key) + "=" + Uri.EscapeDataString(p.Value)));
         var builder = new UriBuilder(endpoint) { Query = query };
         using var request = new HttpRequestMessage(HttpMethod.Get, builder.Uri);
+        request.Headers.UserAgent.ParseAdd("Jell-Stein");
         if (!string.IsNullOrWhiteSpace(config.JacRedApiKey))
+        {
+            // Avoid writing nonempty API keys into nginx access logs.
+            parameters["apikey"] = string.Empty;
             request.Headers.Add("X-Api-Key", config.JacRedApiKey.Trim());
+        }
 
         Interlocked.Increment(ref _attempts);
         _lastAttempt = DateTimeOffset.UtcNow;
