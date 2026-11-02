@@ -18,7 +18,7 @@ jobs:
         run: dotnet restore Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj
       - name: Compile
         run: dotnet build Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj --no-restore -c Release
-      - name: Package development plugin ZIP
+      - name: Prepare plugin files
         run: |
           mkdir -p pkg
           cp Jellyfin.Plugin.OnlineCinema/bin/Release/net10.0/Jellyfin.Plugin.OnlineCinema.dll pkg/
@@ -34,8 +34,7 @@ jobs:
           }
           pathlib.Path("pkg/meta.json").write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
           PY
-          cd pkg && zip -q ../onlinecinema-dev.zip *
       - uses: actions/upload-artifact@v4
         with:
           name: onlinecinema-0.1.1-web
-          path: onlinecinema-dev.zip
+          path: pkg/
