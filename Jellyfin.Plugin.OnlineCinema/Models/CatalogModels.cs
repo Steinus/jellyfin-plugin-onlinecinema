@@ -15,11 +15,19 @@ public sealed record EpisodeInfo(int Number, string Name, string Overview, strin
 
 public sealed record SeasonResult(int Season, IReadOnlyList<EpisodeInfo> Episodes);
 
-public sealed record TorrentResult(string Key, string Title, string Indexer, long Size, int Seeders);
+// Key is an opaque, short-lived server-side selection ID; no magnet URLs
+// or tracker download URLs are included in the client-facing response.
+public sealed record TorrentResult(string Key, string Title, string Indexer, long Size, int Seeders, bool Playable);
+
+public sealed record TorrentRelease(
+    string Title, string Indexer, long Size, int Seeders,
+    string MagnetUri, string DownloadUrl, string Source);
+
 
 public sealed record PreparedTorrent(string Session, string Title, IReadOnlyList<TorrentFile> Files, bool Ready);
 
 public sealed record TorrentFile(int Id, string Path, long Length);
 
-public sealed record PlaySelection(int FileIndex);
+public sealed record PlaySelection(string Session, int FileIndex);
+public sealed record PlayInfo(string Url, string FileName, string ContentType);
 public sealed record PrepareSelection(string Key);
