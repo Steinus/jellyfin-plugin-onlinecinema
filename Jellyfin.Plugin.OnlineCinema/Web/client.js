@@ -472,11 +472,11 @@
                 }));
             }
             if (!info.localItemId) {
-                const findReleases = button('oc-primary-button', 'Найти торренты (JacRed)', async () => {
+                const findReleases = button('oc-primary-button', 'Повторить поиск торрентов', async () => {
                     const resultPanel = dom('div', 'oc-releases');
                     text.querySelector('.oc-releases')?.remove();
                     text.append(resultPanel);
-                    setWorking(resultPanel, 'Поиск раздач в JacRed...');
+                    setWorking(resultPanel, 'Поиск раздач...');
                     try {
                         const route = 'JacRed/search?title=' + encodeURIComponent(info.title) +
                             '&original=' + encodeURIComponent(info.originalTitle) +
@@ -487,7 +487,7 @@
                         resultPanel.replaceChildren();
                         const releases = Array.isArray(result) ? result : [];
                         if (!releases.length) {
-                            resultPanel.append(dom('p', 'oc-message', 'JacRed не нашёл подходящих раздач.'));
+                            resultPanel.append(dom('p', 'oc-message', 'Источник поиска не нашёл подходящих раздач.'));
                         }
                         releases.forEach(raw => {
                             const title = String(read(raw, 'title', 'Раздача'));
@@ -501,7 +501,7 @@
                             resultPanel.append(row);
                         });
                     } catch (error) {
-                        if (validGeneration(generation)) showError(resultPanel, 'Ошибка JacRed: ' + apiError(error), null);
+                        if (validGeneration(generation)) showError(resultPanel, 'Ошибка источника поиска: ' + apiError(error), null);
                     }
                 });
                 text.append(findReleases);
