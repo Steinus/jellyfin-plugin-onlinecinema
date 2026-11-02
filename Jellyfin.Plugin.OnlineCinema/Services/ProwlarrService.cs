@@ -9,10 +9,12 @@ public sealed class ProwlarrService
 {
     private readonly IHttpClientFactory _clients;
     private readonly ILogger<ProwlarrService> _logger;
-    public ProwlarrService(IHttpClientFactory clients, ILogger<ProwlarrService> logger)
+    private readonly TorrentSelections _selections;
+    public ProwlarrService(IHttpClientFactory clients, ILogger<ProwlarrService> logger, TorrentSelections selections)
     {
         _clients = clients;
         _logger = logger;
+        _selections = selections;
     }
 
     public async Task<IReadOnlyList<TorrentResult>> SearchAsync(string title, string original, string year, bool series, CancellationToken token)
@@ -51,9 +53,9 @@ public sealed class ProwlarrService
         if (results.ValueKind != JsonValueKind.Array)
             throw new JsonException("Prowlarr вернул неожиданный формат ответа.");
 
-        return results.EnumerateArray().Take(100).Select(x => new TorrentResult(
-            x.Str("magnetUrl").Length > 0 ? "magnet" : "release",
-            x.Str("title"), x.Str("indexer"), x.Long("size"), x.Int("seeders")))
+        return results.EnumerateArray().Take(100).Select(x => _selections.Register(new TorrentRelease(
+            x.Str("title"), x.Str("indexer"), x.Long("size"), x.Int("seeders"),
+            x.Str("magnetUrl"), x.Str("downloadUrl"), "prowlarr")))
             .Where(x => !string.IsNullOrWhiteSpace(x.Title)).ToArray();
     }
 }
