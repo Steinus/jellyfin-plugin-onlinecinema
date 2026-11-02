@@ -143,7 +143,8 @@ public sealed class CatalogService
             root.Double("vote_average"), local);
     }
 
-    private static string Image(string? path) => string.IsNullOrEmpty(path) || !path.StartsWith("/", StringComparison.Ordinal) ? "" : "https://image.tmdb.org/t/p/w500" + path;
-    private static string ImageBackdrop(string? path) => string.IsNullOrEmpty(path) || !path.StartsWith("/", StringComparison.Ordinal) ? "" : "https://image.tmdb.org/t/p/w1280" + path;
+    private static string Image(string? path) => ProxyImage(path, "w500");
+    private static string ImageBackdrop(string? path) => ProxyImage(path, "w1280");
+    private static string ProxyImage(string? path, string size) => string.IsNullOrWhiteSpace(path) || !path.StartsWith("/", StringComparison.Ordinal) || !TmdbImageService.IsValid(size, path[1..]) ? "" : "OnlineCinema/images/" + size + "/" + path[1..];
     private static string NormalizeType(string type) => type == "tv" ? "tv" : "movie";
 }
