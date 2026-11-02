@@ -1,0 +1,41 @@
+name: Build Online Cinema
+on:
+  push:
+    branches: [main, feature/mvp-catalog-streaming]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj
+      - name: Compile
+        run: dotnet build Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj --no-restore -c Release
+      - name: Package development plugin ZIP
+        run: |
+          mkdir -p pkg
+          cp Jellyfin.Plugin.OnlineCinema/bin/Release/net10.0/Jellyfin.Plugin.OnlineCinema.dll pkg/
+          python3 - <<'PY'
+          import json, pathlib
+          metadata = {
+            "guid":"e1c3807b-47d2-4dd8-a40d-e5e57990a621",
+            "name":"Online Cinema",
+            "version":"0.1.0.0",
+            "targetAbi":"12.2.0.0",
+            "status":"Active",
+            "autoUpdate":False
+          }
+          pathlib.Path("pkg/meta.json").write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
+          PY
+          cd pkg && zip -q ../onlinecinema-dev.zip *
+      - uses: actions/upload-artifact@v4
+        with:
+          name: onlinecinema-dev
+          path: onlinecinema-dev.zip
