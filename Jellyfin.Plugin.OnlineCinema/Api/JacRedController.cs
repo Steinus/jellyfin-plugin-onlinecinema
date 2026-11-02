@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Jellyfin.Plugin.OnlineCinema.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
