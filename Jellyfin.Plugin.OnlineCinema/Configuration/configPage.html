@@ -9,12 +9,26 @@
   <form id="OnlineCinemaForm">
    <div class="inputContainer"><label class="inputLabel" for="OcTmdb">TMDB API Key</label><input is="emby-input" id="OcTmdb" type="password" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcLanguage">Язык каталога</label><input is="emby-input" id="OcLanguage" type="text" placeholder="ru-RU"></div>
-   <h3>Поиск раздач (JacRed напрямую)</h3>
+   <h3>Источник поиска торрентов</h3>
+   <div class="inputContainer">
+     <label class="inputLabel" for="OcProvider">Где искать раздачи</label>
+     <select is="emby-select" class="emby-select-withcolor" id="OcProvider">
+       <option value="jackett">Jackett (JacRed)</option>
+       <option value="prowlarr">Prowlarr</option>
+     </select>
+     <div class="fieldDescription">Выбери один источник. Настройки второго сохраняются при переключении.</div>
+   </div>
+   <div id="OcJackettGroup">
+   <h3>Jackett (JacRed)</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcJacRed">JacRed URL</label><input is="emby-input" id="OcJacRed" type="url" placeholder="https://jac.red"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcJacRedKey">JacRed API Key (если требуется)</label><input is="emby-input" id="OcJacRedKey" type="password" autocomplete="off"></div>
-   <h3>Prowlarr (необязательно)</h3>
+   </div>
+   <div id="OcProwlarrGroup">
+   <h3>Prowlarr</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcProwlarr">Prowlarr URL</label><input is="emby-input" id="OcProwlarr" type="url" placeholder="http://192.168.1.10:9696"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcProwlarrKey">Prowlarr API Key</label><input is="emby-input" id="OcProwlarrKey" type="password" autocomplete="off"></div>
+   </div>
+   <h3>Потоковый сервер</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcUsername">TorrServer пользователь</label><input is="emby-input" id="OcUsername" type="text" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcPassword">TorrServer пароль</label><input is="emby-input" id="OcPassword" type="password" autocomplete="off"></div>
@@ -30,12 +44,18 @@
   var pluginId = 'e1c3807b-47d2-4dd8-a40d-e5e57990a621';
   var fields = {
    OcTmdb:'TmdbApiKey', OcLanguage:'Language',
-   OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
+   OcProvider:'TorrentSearchProvider', OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
    OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
    OcTorrServer:'TorrServerUrl', OcUsername:'TorrServerUsername',
    OcPassword:'TorrServerPassword', OcPreferLocal:'PreferLocalLibrary',
    OcGlobal:'ShowGlobalSearchResults'
   };
+  function updateProvider() {
+    var active = page.querySelector('#OcProvider').value;
+    page.querySelector('#OcJackettGroup').style.display=active==='jackett'?'':'none';
+    page.querySelector('#OcProwlarrGroup').style.display=active==='prowlarr'?'':'none';
+  }
+  page.querySelector('#OcProvider').addEventListener('change',updateProvider);
   page.addEventListener('pageshow', function () {
    Dashboard.showLoadingMsg();
    ApiClient.getPluginConfiguration(pluginId).then(function (config) {
@@ -44,6 +64,8 @@
      if(el.type==='checkbox') el.checked=!!config[fields[id]];
      else el.value=config[fields[id]]||'';
     });
+    page.querySelector('#OcProvider').value=config.TorrentSearchProvider==='prowlarr'?'prowlarr':'jackett';
+    updateProvider();
     Dashboard.hideLoadingMsg();
    }).catch(function () { Dashboard.hideLoadingMsg(); Dashboard.alert('Не удалось загрузить настройки'); });
   });
