@@ -29,10 +29,18 @@ public sealed class CatalogService
     public async Task<CatalogResult> DiscoverAsync(string type, string category, int page, CancellationToken token)
     {
         type = NormalizeType(type);
-        category = category is "top_rated" or "now_playing" or "on_the_air" ? category : "popular";
+        category = category is "top_rated" or "now_playing" or "on_the_air" or "trending" ? category : "popular";
+        if (category == "trending")
+        {
+            using var trending = await FetchAsync($"/3/trending/{type}/week", new Dictionary<string,string>
+            {
+                ["page"] = Math.Clamp(page, 1, 500).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            }, token).ConfigureAwait(false);
+            return ParseList(trending.RootElement, type);
+        }
         if (category == "now_playing" && type == "tv") category = "on_the_air";
         if (category == "on_the_air" && type == "movie") category = "now_playing";
-        var response = await FetchAsync($"/3/{type}/{category}", new Dictionary<string,string>
+        using var response = await FetchAsync($"/3/{type}/{category}", new Dictionary<string,string>
         {
             ["page"] = Math.Clamp(page, 1, 500).ToString(System.Globalization.CultureInfo.InvariantCulture)
         }, token).ConfigureAwait(false);
@@ -70,7 +78,7 @@ public sealed class CatalogService
     public async Task<SeasonResult> SeasonAsync(int seriesId, int season, CancellationToken token)
     {
         if (seriesId < 1 || season < 0 || season > 200) throw new ArgumentException("Некорректный сезон.");
-        using var response = await FetchAsync($"/3/tv/{seriesId}/season/{season}", null, token).ConfigureAwait(false);
+        using using var response = await FetchAsync($"/3/tv/{seriesId}/season/{season}", null, token).ConfigureAwait(false);
         var eps = response.RootElement.Prop("episodes").Elements()
             .Select(e => new EpisodeInfo(e.Int("episode_number"), e.Str("name"), e.Str("overview"), Image(e.Str("still_path")), e.Str("air_date")))
             .ToArray();
