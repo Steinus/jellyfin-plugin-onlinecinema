@@ -11,16 +11,21 @@ namespace Jellyfin.Plugin.OnlineCinema.Api;
 public sealed class JacRedController : ControllerBase
 {
     private readonly JacRedService _jacred;
-    public JacRedController(JacRedService jacred) => _jacred = jacred;
+    private readonly ProwlarrService _prowlarr;
+    public JacRedController(JacRedService jacred, ProwlarrService prowlarr)
+    {
+        _jacred = jacred;
+        _prowlarr = prowlarr;
+    }
 
     [HttpGet("status")]
-    public IActionResult Status() => Ok(_jacred.GetStatus());
+    public IActionResult Status() => Ok(new { provider = Plugin.Instance?.Configuration.TorrentSearchProvider ?? "jackett", jackett = _jacred.GetStatus() });
 
     [HttpGet("search")]
     public async Task<IActionResult> Search([FromQuery] string title, [FromQuery] string original = "",
         [FromQuery] string year = "", [FromQuery] bool series = false, CancellationToken cancellationToken = default)
     {
-        try { return Ok(await _jacred.SearchAsync(title, original, year, series, cancellationToken).ConfigureAwait(false)); }
+        try { return Ok(await ((Plugin.Instance?.Configuration.TorrentSearchProvider == "prowlarr") ? _prowlarr.SearchAsync(title, original, year, series, cancellationToken) : _jacred.SearchAsync(title, original, year, series, cancellationToken)).ConfigureAwait(false)); }
         catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { error = ex.Message }); }
         catch (HttpRequestException ex) { return StatusCode(502, new { error = ex.Message }); }
