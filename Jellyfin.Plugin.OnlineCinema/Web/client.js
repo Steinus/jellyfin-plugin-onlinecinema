@@ -111,8 +111,11 @@
     const content = () => current()?.querySelector('#oc-user-content');
 
     function apiError(error) {
-        const data = error?.responseJSON || error?.responseJson || {};
-        const message = read(data, 'error', null) || read(data, 'message', null) || error?.message;
+        let data = error?.responseJSON || error?.responseJson || {};
+        if (!Object.keys(data).length && typeof error?.responseText === 'string') {
+            try { data = JSON.parse(error.responseText); } catch (_) { /* non-JSON */ }
+        }
+        const message = read(data, 'error', null) || read(data, 'message', null) || error?.message || error?.statusText;
         return String(message || 'Не удалось связаться с Jellyfin/TMDB');
     }
 
@@ -564,7 +567,7 @@
                 // Trigger the first JacRed search automatically for online titles.
                 findReleases.click();
             }
-            text.append(dom('p', 'oc-note', 'Воспроизведение через TorrServer ещё не подключено.'));
+            text.append(dom('p', 'oc-note', 'Для воспроизведения выберите magnet-раздачу и видеофайл.'));
             header.append(poster, text);
             panel.append(header);
             if (info.type === 'tv' && response.seasons.length) {
