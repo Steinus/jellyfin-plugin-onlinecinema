@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0113) return;
-    window.__onlineCinemaV0113 = true;
+    if (window.__onlineCinemaV0114) return;
+    window.__onlineCinemaV0114 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -780,122 +780,319 @@
         return /^[0-9a-f]{32}$|^[0-9a-f-]{36}$/i.test(id) ? id : '';
     }
 
+    function torrentQuality(title) {
+        const name = String(title || '').toLowerCase();
+        const fourK = /(?:^|[\s._()[\]\/-])(?:2160p?|4k|uhd)(?:$|[\s._()[\]\/-])/i.test(name);
+        const hd720 = /(?:^|[\s._()[\]\/-])720p?(?:$|[\s._()[\]\/-])/i.test(name);
+        const fullHD = /(?:^|[\s._()[\]\/-])1080[pi]?(?:$|[\s._()[\]\/-])/i.test(name);
+        const dv = /dolby[\s._-]*vision|dovi|(?:^|[\s._()[\]\/-])dv(?:$|[\s._()[\]\/-])/i.test(name);
+        const hdr = /(?:^|[\s._()[\]\/-])(?:hdr|hdr10\+?|hlg)(?:$|[\s._()[\]\/-])/i.test(name);
+        return { resolution: fourK ? '2160p' : fullHD ? '1080p' : hd720 ? '720p' : 'other',
+            fourK, hd720, hdr, dv };
+    }
+
+    function defaultCinemaOptions() {
+        return { autoPlayMode: 'auto', autoPlayQuality: '1080p', autoPlaySort: 'quality',
+            autoPlayMaxAttempts: 3, autoPlayMinSeeders: 0,
+            exclude4K: false, exclude720p: false, excludeHdr: false, excludeDolbyVision: false };
+    }
+
+    function releaseMatches(raw, options, resolution = 'all') {
+        const q = torrentQuality(read(raw, 'title', ''));
+        if (options.exclude4K && q.fourK) return false;
+        if (options.exclude720p && q.hd720) return false;
+        if (options.excludeHdr && q.hdr) return false;
+        if (options.excludeDolbyVision && q.dv) return false;
+        if (Number(read(raw, 'seeders', 0)) < Number(options.autoPlayMinSeeders || 0)) return false;
+        return resolution === 'all' || q.resolution === resolution;
+    }
+
+    function qualityScore(raw, preferred) {
+        const resolution = torrentQuality(read(raw, 'title', '')).resolution;
+        const baseline = { '2160p': 3, '1080p': 2, '720p': 1, other: 0 };
+        if (preferred === 'any') return baseline[resolution] || 0;
+        if (preferred === resolution) return 10;
+        if (preferred === '1080p') return resolution === '720p' ? 7 : resolution === 'other' ? 4 : 2;
+        if (preferred === '2160p') return resolution === '1080p' ? 7 : resolution === '720p' ? 5 : 2;
+        return resolution === '1080p' ? 7 : resolution === 'other' ? 4 : 2;
+    }
+
+    function sortReleases(list, options, order) {
+        const mode = order || options.autoPlaySort || 'quality';
+        const preferred = options.autoPlayQuality || '1080p';
+        return [...list].sort((a, b) => {
+            const size = Number(read(b, 'size', 0)) - Number(read(a, 'size', 0));
+            const seeds = Number(read(b, 'seeders', 0)) - Number(read(a, 'seeders', 0));
+            const quality = qualityScore(b, preferred) - qualityScore(a, preferred);
+            if (mode === 'size_asc') return -size || seeds;
+            if (mode === 'size_desc') return size || seeds;
+            if (mode === 'seeders') return seeds || quality || size;
+            return quality || seeds || size;
+        });
+    }
+
     function addNativeDetailsControls(nativeId, info) {
         const page = document.querySelector('.itemDetailPage');
         const ribbon = page?.querySelector('.detailRibbon');
         if (!ribbon || !isCurrentNative(nativeId)) return false;
-        const marker = page.querySelector('#oc-native-controls');
-        if (marker) return true;
+        const old = page.querySelector('#oc-native-controls');
+        if (old?.dataset.nativeId === nativeId) return true;
+        old?.remove();
+        page.classList.add('oc-native-detail');
 
         const actions = dom('div', 'oc-native-actions');
         actions.id = 'oc-native-controls';
         actions.dataset.nativeId = nativeId;
-        const play = button('oc-native-play', '▶  Воспроизвести', async () => {
-            try {
-                const result = await api('Native/item/' + encodeURIComponent(nativeId));
-                const selected = read(result, 'selectedVideoId', null);
-                if (!selected) throw Error('Сначала нажми «Торренты» и выбери раздачу и видеофайл.');
-                await launchJellyfinPlayer(selected, actions);
-            } catch (error) {
-                let errorBox = actions.querySelector('.oc-native-play-error');
-                if (!errorBox) { errorBox=dom('div','oc-native-play-error');actions.append(errorBox); }
-                showError(errorBox, apiError(error), null);
-            }
-        });
-        actions.append(play);
+        const messageBox = dom('div', 'oc-native-play-status');
         const host = dom('div', 'oc-native-results');
-                        const findReleases = button('oc-primary-button', 'Торренты', async () => {
-                    const resultPanel = dom('div', 'oc-releases');
-                    host.querySelector('.oc-releases')?.remove();
-                    host.append(resultPanel);
-                    setWorking(resultPanel, 'Поиск раздач...');
-                    try {
-                        const route = 'JacRed/search?title=' + encodeURIComponent(info.title) +
-                            '&original=' + encodeURIComponent(info.originalTitle) +
-                            '&year=' + encodeURIComponent(info.year) +
-                            '&series=' + (info.type === 'tv');
-                        const result = await api(route);
-                        if (!isCurrentNative(nativeId)) return;
-                        resultPanel.replaceChildren();
-                        const releases = Array.isArray(result) ? result : [];
-                        if (!releases.length) {
-                            resultPanel.append(dom('p', 'oc-message', 'Источник поиска не нашёл подходящих раздач.'));
-                        }
-                        releases.forEach(raw => {
-                            const title = String(read(raw, 'title', 'Раздача'));
-                            const tracker = String(read(raw, 'indexer', ''));
-                            const size = Number(read(raw, 'size', 0));
-                            const seeds = Number(read(raw, 'seeders', 0));
-                            const row = dom('div', 'oc-release-row');
-                            row.append(dom('strong', '', title));
-                            row.append(dom('span', 'oc-detail-meta',
-                                tracker + ' · ' + (size > 0 ? (size / (1024 ** 3)).toFixed(2) + ' ГБ · ' : '') + 'Сиды: ' + seeds));
-                            if (read(raw, 'playable', false)) {
-                                row.append(button('oc-primary-button', 'Выбрать раздачу', async () => {
-                                    const zone = dom('div', 'oc-file-picker');
-                                    resultPanel.querySelector('.oc-file-picker')?.remove();
-                                    row.after(zone);
-                                    zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                                    setWorking(zone, 'Подключение к TorrServer...');
-                                    try {
-                                        const initial = await apiPost('TorrServer/prepare', { key: read(raw,'key','') });
-                                        const session = read(initial, 'session', '');
-                                        if (!session) throw Error('TorrServer не вернул сеанс.');
-                                        const showFiles = async () => {
-                                            if (!isCurrentNative(nativeId)) return;
-                                            const current = await api('TorrServer/files/' + encodeURIComponent(session));
-                                            const files = read(current, 'files', []);
-                                            zone.replaceChildren();
-                                            if (!files.length) {
-                                                zone.append(dom('p','oc-message','Ожидание метаданных торрента...'));
-                                                zone.append(button('oc-button', 'Проверить ещё раз', showFiles));
-                                                return;
-                                            }
-                                            zone.append(dom('h3','','Выберите видеофайл'));
-                                            files.filter(file => /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(read(file,'path',''))).forEach(file => {
-                                                const label = read(file,'path','');
-                                                const index = Number(read(file,'id',0));
-                                                zone.append(button('oc-file-button', label, async () => {
-                                                    setWorking(zone, 'Подготавливаем воспроизведение...');
-                                                    try {
-                                                        const info = await apiPost('TorrServer/select', {session, fileIndex:index});
-                                                        const itemId = read(info, 'itemId', '');
-                                                        if (!itemId) throw Error('Jellyfin не вернул ID видео.');
-                                                        await apiPost('Native/item/' + encodeURIComponent(nativeId) + '/selected', { videoId: itemId });
-                                                        await launchJellyfinPlayer(itemId, zone);
-                                                    } catch (error) {showError(zone,apiError(error),null);}
-                                                }));
-                                            });
-                                        };
-                                        await showFiles();
-                                    } catch (error) {
-                                        showError(zone, 'TorrServer: ' + apiError(error), null);
-                                        zone.append(button('oc-button', 'Проверить соединение с TorrServer', async () => {
-                                            const diagnostic = dom('p', 'oc-message', 'Проверяем подключение...');
-                                            zone.append(diagnostic);
-                                            try {
-                                                const test = await api('TorrServer/diagnose');
-                                                const address = String(read(test, 'host', '')) + ':' + String(read(test, 'port', ''));
-                                                diagnostic.textContent = (read(test, 'connected', false) ? 'Соединение есть. ' : 'Нет соединения. ') +
-                                                    address + ' — ' + String(read(test, 'error', read(test, 'message', 'Нет ответа')));
-                                            } catch (e) {
-                                                diagnostic.textContent = 'Не удалось выполнить диагностику: ' + apiError(e);
-                                            }
-                                        }));
-                                    }
-                                }));
-                            } else {
-                                row.append(dom('span', 'oc-note', 'Нет magnet-ссылки — запуск пока недоступен'));
-                            }
-                            resultPanel.append(row);
-                        });
-                    } catch (error) {
-                        if (isCurrentNative(nativeId)) showError(resultPanel, 'Ошибка источника поиска: ' + apiError(error), null);
+        host.hidden = true;
+        let loaded = null;
+        let searchPromise = null;
+        let listSort = 'quality';
+        let resolutionFilter = 'all';
+        let opts = defaultCinemaOptions();
+        const filterState = { ...opts };
+
+        async function searchReleases(force = false) {
+            if (!force && Array.isArray(loaded)) return loaded;
+            if (searchPromise) return searchPromise;
+            const request = 'JacRed/search?title=' + encodeURIComponent(info.title) +
+                '&original=' + encodeURIComponent(info.originalTitle) +
+                '&year=' + encodeURIComponent(info.year) +
+                '&series=' + (info.type === 'tv');
+            searchPromise = api(request).then(data => {
+                if (!Array.isArray(data)) throw Error('Источник торрентов вернул неожиданный ответ.');
+                loaded = data;
+                return loaded;
+            }).finally(() => { searchPromise = null; });
+            return searchPromise;
+        }
+
+        async function prepare(raw) {
+            const started = await apiPost('TorrServer/prepare', { key: read(raw, 'key', '') });
+            const session = read(started, 'session', '');
+            if (!session) throw Error('TorrServer не вернул сеанс.');
+            let files = read(started, 'files', []);
+            for (let attempt = 0; attempt < 5 && !files.length; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, attempt ? 1500 : 700));
+                const next = await api('TorrServer/files/' + encodeURIComponent(session));
+                files = read(next, 'files', []);
+            }
+            const videoFiles = files.filter(file => /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(String(read(file, 'path', ''))));
+            if (!videoFiles.length) throw Error('TorrServer не получил список видеофайлов.');
+            return { session, files: videoFiles };
+        }
+
+        async function selectAndPlay(session, file, statusBox) {
+            const result = await apiPost('TorrServer/select', {
+                session, fileIndex: Number(read(file, 'id', 0))
+            });
+            const itemId = String(read(result, 'itemId', ''));
+            if (!itemId) throw Error('Jellyfin не вернул ID видео.');
+            await apiPost('Native/item/' + encodeURIComponent(nativeId) + '/selected', { videoId: itemId });
+            await launchJellyfinPlayer(itemId, statusBox);
+        }
+
+        async function automaticPlayback() {
+            const statusBox = messageBox;
+            let chosen = null;
+            try {
+                const mode = opts.autoPlayMode || 'auto';
+                if (mode === 'manual') {
+                    statusBox.textContent = 'Открываем ручной выбор раздач...';
+                    await openTorrentList();
+                    return;
+                }
+                if (mode === 'previous') {
+                    const state = await api('Native/item/' + encodeURIComponent(nativeId));
+                    const selected = read(state, 'selectedVideoId', null);
+                    if (selected) {
+                        await launchJellyfinPlayer(selected, statusBox);
+                        return;
                     }
-                });
-                actions.append(findReleases);
-        actions.append(host);
+                }
+                statusBox.textContent = 'Автопоиск раздач...';
+                const all = await searchReleases();
+                const candidates = sortReleases(all.filter(x =>
+                    read(x, 'playable', false) && releaseMatches(x, opts)
+                ), opts);
+                if (!candidates.length) throw Error('Нет подходящих magnet-раздач с учётом фильтров. Измени настройки или нажми «Торренты».');
+                const maxAttempts = Math.max(1, Math.min(5, Number(opts.autoPlayMaxAttempts) || 3));
+                const failures = [];
+                for (let i = 0; i < Math.min(maxAttempts, candidates.length); i++) {
+                    chosen = candidates[i];
+                    statusBox.textContent = 'Проверяем раздачу ' + (i + 1) + '/' +
+                        Math.min(maxAttempts, candidates.length) + ': ' + read(chosen, 'title', '');
+                    try {
+                        const prepared = await prepare(chosen);
+                        const videos = [...prepared.files];
+                        // For series, select the first episode by filename rather than a bonus video.
+                        if (info.type === 'tv') {
+                            videos.sort((a, b) => String(read(a, 'path', '')).localeCompare(String(read(b, 'path', '')), undefined, { numeric: true }));
+                        } else {
+                            videos.sort((a, b) => Number(read(b, 'length', 0)) - Number(read(a, 'length', 0)));
+                        }
+                        statusBox.textContent = 'Запускаем видео через Jellyfin...';
+                        await selectAndPlay(prepared.session, videos[0], statusBox);
+                        return;
+                    } catch (error) {
+                        failures.push(apiError(error));
+                    }
+                }
+                throw Error('Ни одна раздача не запустилась: ' + failures.join('; '));
+            } catch (error) {
+                showError(statusBox, apiError(error), () => automaticPlayback());
+            }
+        }
+
+        const play = button('oc-native-play', '▶  Воспроизвести', () => automaticPlayback());
+        actions.append(play);
+        const torrentToggle = button('oc-primary-button', 'Торренты', () => {
+            if (!host.hidden) {
+                host.hidden = true;
+                torrentToggle.textContent = 'Торренты';
+                return;
+            }
+            openTorrentList();
+        });
+        actions.append(torrentToggle, messageBox, host);
         ribbon.after(actions);
+
+        function selectField(label, values, selected, onChange) {
+            const container = dom('label', 'oc-filter-control');
+            container.append(dom('span', '', label));
+            const select = dom('select', 'oc-filter-select');
+            values.forEach(([value, text]) => {
+                const option = dom('option', '', text);
+                option.value = value;
+                if (selected === value) option.selected = true;
+                select.append(option);
+            });
+            select.addEventListener('change', () => onChange(select.value));
+            container.append(select);
+            return container;
+        }
+
+        function checkField(label, property, refresh) {
+            const control = dom('label', 'oc-filter-check');
+            const input = dom('input');
+            input.type = 'checkbox';
+            input.checked = !!filterState[property];
+            input.addEventListener('change', () => {
+                filterState[property] = input.checked;
+                refresh();
+            });
+            control.append(input, dom('span', '', label));
+            return control;
+        }
+
+        async function openTorrentList(force = false) {
+            host.hidden = false;
+            torrentToggle.textContent = 'Скрыть торренты';
+            let list = host.querySelector('.oc-releases');
+            if (list && !force) return;
+            host.replaceChildren();
+            const loading = dom('p', 'oc-message', 'Ищем раздачи...');
+            host.append(loading);
+            try {
+                const releases = await searchReleases(force);
+                if (!isCurrentNative(nativeId)) return;
+                host.replaceChildren();
+                const controls = dom('div', 'oc-release-filters');
+                const entries = dom('div', 'oc-releases');
+                const counter = dom('p', 'oc-release-count');
+                const refresh = () => {
+                    entries.querySelectorAll('.oc-file-picker').forEach(x => x.remove());
+                    entries.replaceChildren();
+                    const visible = sortReleases(releases.filter(raw =>
+                        releaseMatches(raw, filterState, resolutionFilter)
+                    ), { ...opts, ...filterState }, listSort);
+                    counter.textContent = 'Раздач: ' + visible.length + ' из ' + releases.length;
+                    for (const raw of visible) addRelease(entries, raw);
+                    if (!visible.length) entries.append(dom('p', 'oc-message', 'Нет результатов с такими фильтрами.'));
+                };
+                controls.append(selectField('Сортировка', [
+                    ['quality','По качеству'], ['seeders','По сидам'],
+                    ['size_asc','Размер: меньше → больше'], ['size_desc','Размер: больше → меньше']
+                ], listSort, next => { listSort = next; refresh(); }));
+                controls.append(selectField('Разрешение', [
+                    ['all','Все'], ['2160p','4K / 2160p'], ['1080p','1080p'],
+                    ['720p','720p'], ['other','Другое / неизвестно']
+                ], resolutionFilter, next => { resolutionFilter = next; refresh(); }));
+                const checks = dom('div', 'oc-quality-checks');
+                [['Без 4K','exclude4K'], ['Без 720p','exclude720p'],
+                    ['Без HDR','excludeHdr'], ['Без Dolby Vision','excludeDolbyVision']]
+                    .forEach(([label, key]) => checks.append(checkField(label, key, refresh)));
+                const refreshButton = button('oc-button', 'Обновить поиск', () => openTorrentList(true));
+                controls.append(checks, refreshButton);
+                host.append(controls, counter, entries);
+                refresh();
+            } catch (error) {
+                showError(host, 'Ошибка поиска: ' + apiError(error), () => openTorrentList(true));
+            }
+        }
+
+        function addRelease(list, raw) {
+            const row = dom('div', 'oc-release-row');
+            const title = String(read(raw, 'title', 'Раздача'));
+            const flags = torrentQuality(title);
+            const size = Number(read(raw, 'size', 0));
+            const seeds = Number(read(raw, 'seeders', 0));
+            row.append(dom('strong', '', title));
+            const details = dom('div', 'oc-detail-meta',
+                String(read(raw, 'indexer', '')) + ' · ' +
+                (size > 0 ? (size / (1024 ** 3)).toFixed(2) + ' ГБ · ' : '') +
+                'Сиды: ' + seeds);
+            row.append(details);
+            const tags = dom('div', 'oc-release-tags');
+            const badges = [flags.resolution !== 'other' ? flags.resolution : null,
+                flags.hdr ? 'HDR' : null, flags.dv ? 'Dolby Vision' : null].filter(Boolean);
+            badges.forEach(x => tags.append(dom('span', 'oc-release-tag', x)));
+            row.append(tags);
+            if (!read(raw, 'playable', false)) {
+                row.append(dom('p', 'oc-note', 'Нет magnet-ссылки: запуск недоступен'));
+            } else {
+                row.append(button('oc-primary-button', 'Выбрать раздачу', async () => {
+                    list.querySelector('.oc-file-picker')?.remove();
+                    const zone = dom('div', 'oc-file-picker');
+                    row.after(zone);
+                    zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    setWorking(zone, 'Подключение к TorrServer...');
+                    try {
+                        const prepared = await prepare(raw);
+                        if (!isCurrentNative(nativeId)) return;
+                        zone.replaceChildren(dom('h3', '', 'Выбери видеофайл'));
+                        for (const file of prepared.files) {
+                            const name = String(read(file, 'path', ''));
+                            zone.append(button('oc-file-button', name, async () => {
+                                setWorking(zone, 'Запускаем видео...');
+                                try {
+                                    await selectAndPlay(prepared.session, file, zone);
+                                } catch (error) {
+                                    showError(zone, apiError(error), null);
+                                }
+                            }));
+                        }
+                    } catch (error) {
+                        showError(zone, apiError(error), null);
+                    }
+                }));
+            }
+            list.append(row);
+        }
+
+        api('Native/options').then(settings => {
+            opts = { ...opts, ...settings };
+            Object.assign(filterState, {
+                exclude4K: !!read(settings, 'exclude4K', false),
+                exclude720p: !!read(settings, 'exclude720p', false),
+                excludeHdr: !!read(settings, 'excludeHdr', false),
+                excludeDolbyVision: !!read(settings, 'excludeDolbyVision', false),
+                autoPlayMinSeeders: Number(read(settings, 'autoPlayMinSeeders', 0))
+            });
+        }).catch(error => {
+            console.warn('Online Cinema: playback preferences unavailable:', error);
+        });
         return true;
     }
 
@@ -903,6 +1100,9 @@
         const nativeId = getNativeIdFromHash();
         if (!nativeId) {
             currentNativeId = '';
+            const page = document.querySelector('.itemDetailPage');
+            page?.classList.remove('oc-native-detail');
+            page?.querySelector('#oc-native-controls')?.remove();
             return;
         }
         currentNativeId = nativeId;
