@@ -92,3 +92,22 @@
 #itemDetailPage .oc-message,.itemDetailPage .oc-message{padding:12px 0;color:#b9c4d3}
 #itemDetailPage .oc-button,.itemDetailPage .oc-button{border:1px solid #45546c;border-radius:8px;padding:9px 13px;color:white;background:#283448;cursor:pointer}
 @media(max-width:750px){#itemDetailPage .oc-native-actions,.itemDetailPage .oc-native-actions{margin:8px 18px 24px;max-width:none}#itemDetailPage .oc-native-play,.itemDetailPage .oc-native-play,#itemDetailPage .oc-native-actions > .oc-primary-button,.itemDetailPage .oc-native-actions > .oc-primary-button{max-width:none}}
+
+/* Online Cinema native details: avoid two Play actions for virtual TMDB items. */
+.itemDetailPage.oc-native-detail .mainDetailButtons .btnPlay,
+.itemDetailPage.oc-native-detail .mainDetailButtons .btnReplay,
+.itemDetailPage.oc-native-detail .detailRibbon .btnPlay,
+.itemDetailPage.oc-native-detail .detailRibbon .btnReplay{display:none!important}
+.itemDetailPage .oc-native-results[hidden], .itemDetailPage .oc-releases[hidden]{display:none!important}
+.itemDetailPage .oc-native-play-status:empty{display:none}
+.itemDetailPage .oc-native-play-status{max-width:850px}
+.itemDetailPage .oc-release-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end;padding:12px;border:1px solid #39475a;border-radius:9px;background:#171f2a;margin:6px 0 10px}
+.itemDetailPage .oc-filter-control{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#d1e0f2}
+.itemDetailPage .oc-filter-select{padding:9px 13px;border-radius:7px;min-width:170px;background:#283448;color:white;border:1px solid #4c6080}
+.itemDetailPage .oc-quality-checks{display:flex;flex-wrap:wrap;gap:10px;align-items:center;flex:1 0 100%}
+.itemDetailPage .oc-filter-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#d1dae6;cursor:pointer}
+.itemDetailPage .oc-filter-check input{accent-color:#2386e2}
+.itemDetailPage .oc-release-count{font-size:12px;color:#a7bbd3;padding:4px 0}
+.itemDetailPage .oc-release-tags{display:flex;gap:6px;flex-wrap:wrap}
+.itemDetailPage .oc-release-tag{font-size:10px;padding:3px 7px;background:#30465c;border-radius:7px;color:#d6eaff}
+.itemDetailPage .oc-native-actions .oc-primary-button{max-width:670px}
