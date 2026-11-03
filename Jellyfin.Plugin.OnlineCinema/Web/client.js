@@ -975,7 +975,7 @@
                 }
             }
             const videoFiles = files.filter(file =>
-                /\\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(String(read(file, 'path', ''))));
+                /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(String(read(file, 'path', ''))));
             if (!videoFiles.length) {
                 throw Error(files.length
                     ? 'TorrServer вернул файлы, но среди них нет видео.'
