@@ -24,6 +24,7 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         services.AddHttpClient("OnlineCinemaTorrServerStream", c => c.Timeout = TimeSpan.FromHours(4));
         services.AddSingleton<TorrServerService>();
         services.AddSingleton<NativePlaybackRegistry>();
+        services.AddSingleton<StrmLibraryService>();
         services.AddSingleton<NativePlaybackFilter>();
         services.PostConfigure<Microsoft.AspNetCore.Mvc.MvcOptions>(options => options.Filters.AddService<NativePlaybackFilter>(order: -10));
         services.AddSingleton<IScheduledTask, ClientIntegrationTask>();
