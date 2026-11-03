@@ -24,6 +24,25 @@ public sealed class NativeCatalogController : ControllerBase
         _registry = registry;
     }
 
+    [HttpGet("options")]
+    public IActionResult Options()
+    {
+        var c = Plugin.Instance?.Configuration;
+        return Ok(new
+        {
+            autoPlayMode = c?.AutoPlayMode ?? "auto",
+            autoPlayQuality = c?.AutoPlayQuality ?? "1080p",
+            autoPlaySort = c?.AutoPlaySort ?? "quality",
+            autoPlayMaxAttempts = Math.Clamp(c?.AutoPlayMaxAttempts ?? 3, 1, 5),
+            autoPlayMinSeeders = Math.Max(0, c?.AutoPlayMinSeeders ?? 0),
+            exclude4K = c?.Exclude4K ?? false,
+            exclude720p = c?.Exclude720p ?? false,
+            excludeHdr = c?.ExcludeHdr ?? false,
+            excludeDolbyVision = c?.ExcludeDolbyVision ?? false,
+            probeMediaStreams = c?.ProbeMediaStreams ?? true
+        });
+    }
+
     [HttpPost("open/{type}/{tmdbId:int}")]
     public async Task<IActionResult> Open(string type, int tmdbId, CancellationToken token)
     {
