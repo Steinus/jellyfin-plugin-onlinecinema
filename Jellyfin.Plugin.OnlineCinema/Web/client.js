@@ -797,7 +797,16 @@
             const localId = read(registered, 'localItemId', null);
             const id = localId || read(registered, 'itemId', '');
             if (!id) throw Error('Не удалось зарегистрировать карточку Jellyfin');
-            if (!localId) knownOnlineNativeIds.add(normalizeGuid(id));
+            if (!localId) {
+                knownOnlineNativeIds.add(normalizeGuid(id));
+                // The catalog already supplied these metadata fields, so
+                // mobile controls can mount without another API round-trip.
+                nativeDetailsCache.set(id, {
+                    nativeId: id, type: media.type, tmdbId: media.id,
+                    title: media.title, originalTitle: media.originalTitle, year: media.year,
+                    selectedVideoId: null
+                });
+            }
             jellyfinDetails(id);
         } catch (error) {
             // Some embedded Jellyfin clients do not expose the same virtual
