@@ -16,6 +16,12 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public string TorrServerUrl { get; set; } = string.Empty;
     public string TorrServerUsername { get; set; } = string.Empty;
     public string TorrServerPassword { get; set; } = string.Empty;
+    // proxy: Jellyfin forwards byte-range requests to TorrServer (legacy).
+    // direct: the native Jellyfin player opens http(s)://TorrServer/play/hash/file
+    // itself, like a direct remote STRM link. Requires client LAN connectivity.
+    // With TorrServer basic auth, direct mode falls back to proxy so credentials
+    // are never disclosed in the playback URL.
+    public string StreamDeliveryMode { get; set; } = "proxy";
     // Behaviour of the custom Play action on an online catalog item.
     // auto = search and play automatically; previous = replay selected media, otherwise auto;
     // manual = open the torrent list and let the user choose.
