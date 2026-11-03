@@ -850,7 +850,7 @@
     }
 
     function defaultCinemaOptions() {
-        return { autoPlayMode: 'auto', autoPlayQuality: '1080p', autoPlaySort: 'quality',
+        return { playbackBackend: 'strm', autoPlayMode: 'auto', autoPlayQuality: '1080p', autoPlaySort: 'quality',
             autoPlayMaxAttempts: 3, autoPlayMinSeeders: 0,
             exclude4K: false, exclude720p: false, excludeHdr: false, excludeDolbyVision: false };
     }
@@ -1076,62 +1076,33 @@
         }
 
         async function selectAndPlay(session, file, statusBox) {
-            await optionsReady;
-            if (opts.playbackBackend === 'strm') {
-                if (statusBox?.isConnected)
-                    statusBox.textContent = 'Создаём STRM в медиатеке Jellyfin...';
-                let created;
-                try {
-                    created = await apiPost('Strm/create', {
-                        nativeId, session, fileIndex: Number(read(file, 'id', 0))
-                    });
-                } catch (error) {
-                    throw Error('Создание STRM: ' + apiError(error));
-                }
-                let realId = read(created, 'itemId', null);
-                if (!realId) realId = await waitForStrmItem(statusBox,
-                    String(read(created, 'fileName', '')));
-                await refreshStrmStatus();
-                if (statusBox?.isConnected)
-                    statusBox.textContent = 'Воспроизводим настоящий STRM элемент Jellyfin...';
-                await launchJellyfinPlayer(realId, statusBox);
-                return;
-            }
+            // STRM is the only supported playback path in this release. Do not
+            // silently fall back to virtual videos if options cannot be loaded.
+            // This also prevents old client settings from re-enabling Source error.
+            const fileIndex = Number(read(file, 'id', 0));
+            if (!Number.isInteger(fileIndex) || fileIndex < 1)
+                throw Error('TorrServer не вернул корректный индекс видеофайла.');
             if (statusBox?.isConnected)
-                statusBox.textContent = 'Выбираем файл в TorrServer...';
-            let result;
+                statusBox.textContent = 'Шаг 1/3: создаём STRM на сервере Jellyfin...';
+            let created;
             try {
-                result = await apiPost('TorrServer/select', {
-                    session, fileIndex: Number(read(file, 'id', 0))
-                });
+                created = await apiPost('Strm/create', { nativeId, session, fileIndex });
             } catch (error) {
-                throw Error('Выбор файла TorrServer/select: ' + apiError(error));
+                throw Error('STRM не создан: ' + apiError(error) +
+                    '. Проверь путь и права записи в настройках Online Cinema.');
             }
-            const itemId = String(read(result, 'itemId', ''));
-            if (!itemId) throw Error('Jellyfin не вернул ID подготовленного видео.');
-            lastSelectedVideoId = itemId;
-            sourceCheckButton.hidden = false;
-            await checkSource(itemId);
-            const deliveryMessage = String(read(result, 'modeNotice', ''));
-            if (deliveryMessage) {
-                const notice = dom('div', 'oc-playback-mode', deliveryMessage);
-                diagnosticBox.prepend(notice);
-            }
-            try {
-                // Only used to remember last selection; failure here is not
-                // a playback error and must not strand Android clients.
-                await apiPost('Native/item/' + encodeURIComponent(nativeId) + '/selected',
-                    { videoId: itemId });
-            } catch (error) {
-                console.warn('Online Cinema: could not save recent selection:', apiError(error));
-            }
+            const fileName = String(read(created, 'fileName', ''));
+            if (!read(created, 'created', false) || !fileName)
+                throw Error('Сервер не подтвердил создание STRM. Плеер не запускается.');
             if (statusBox?.isConnected)
-                statusBox.textContent = 'Открываем видеоплеер Jellyfin...';
-            try {
-                await launchJellyfinPlayer(itemId, statusBox);
-            } catch (error) {
-                throw Error('Запуск плеера Jellyfin: ' + apiError(error));
-            }
+                statusBox.textContent = 'Шаг 2/3: STRM создан — ' + fileName +
+                    '. Ждём появления в медиатеке...';
+            let realId = read(created, 'itemId', null);
+            if (!realId) realId = await waitForStrmItem(statusBox, fileName);
+            await refreshStrmStatus();
+            if (statusBox?.isConnected)
+                statusBox.textContent = 'Шаг 3/3: воспроизводим реальный STRM через Jellyfin...';
+            await launchJellyfinPlayer(realId, statusBox);
         }
 
         async function automaticPlayback() {
@@ -1146,20 +1117,11 @@
                     return;
                 }
                 if (mode === 'previous') {
-                    if (opts.playbackBackend === 'strm') {
-                        const entries = await refreshStrmStatus();
-                        const ready = entries.find(x => !!read(x, 'itemId', null));
-                        if (ready) {
-                            await launchJellyfinPlayer(read(ready, 'itemId', ''), statusBox);
-                            return;
-                        }
-                    } else {
-                        const state = await api('Native/item/' + encodeURIComponent(nativeId));
-                        const selected = read(state, 'selectedVideoId', null);
-                        if (selected) {
-                            await launchJellyfinPlayer(selected, statusBox);
-                            return;
-                        }
+                    const entries = await refreshStrmStatus();
+                    const ready = entries.find(x => !!read(x, 'itemId', null));
+                    if (ready) {
+                        await launchJellyfinPlayer(read(ready, 'itemId', ''), statusBox);
+                        return;
                     }
                 }
                 statusBox.textContent = 'Автопоиск раздач...';
@@ -1364,8 +1326,18 @@
         }).catch(error => {
             console.warn('Online Cinema: playback preferences unavailable:', error);
         });
-        optionsReady.then(() => refreshStrmStatus()).catch(error => {
-            console.warn('Online Cinema: STRM status unavailable:', error);
+        optionsReady.then(async () => {
+            const state = await api('Strm/status/' + encodeURIComponent(nativeId));
+            if (!read(state, 'configured', false)) {
+                const warning = String(read(state, 'message',
+                    'Укажи путь STRM и подключи его к медиатеке Jellyfin.'));
+                if (messageBox?.isConnected)
+                    messageBox.textContent = 'STRM: ' + warning;
+            }
+            await refreshStrmStatus();
+        }).catch(error => {
+            if (messageBox?.isConnected)
+                messageBox.textContent = 'Проверка STRM: ' + apiError(error);
         });
         return true;
     }
