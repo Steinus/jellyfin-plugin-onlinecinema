@@ -1316,6 +1316,12 @@
                     try {
                         const prepared = await prepare(raw, zone, false);
                         if (!isCurrentNative(nativeId)) return;
+                        // Most movie torrents contain one video. One tap on
+                        // "Выбрать раздачу" should create STRM and play it.
+                        if (prepared.files.length === 1) {
+                            await selectAndPlay(prepared.session, prepared.files[0], zone);
+                            return;
+                        }
                         zone.replaceChildren(dom('h3', '', 'Выбери видеофайл'));
                         for (const file of prepared.files) {
                             const name = String(read(file, 'path', ''));
