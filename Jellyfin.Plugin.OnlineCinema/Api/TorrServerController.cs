@@ -36,6 +36,23 @@ public sealed class TorrServerController : ControllerBase
     public async Task<IActionResult> Diagnose(CancellationToken token) => Ok(await _server.DiagnoseAsync(token));
 
     [Authorize]
+    [HttpGet("check/{itemId:guid}")]
+    public async Task<IActionResult> Check(Guid itemId, CancellationToken token)
+    {
+        var item = _native.Get(itemId);
+        if (item is null)
+            return NotFound(new { error = "Временный видеоэлемент не найден. Выберите раздачу повторно." });
+
+        var parts = item.StreamPath.Trim('/').Split('/');
+        if (parts.Length < 4 || parts[0] != "OnlineCinema" ||
+            parts[1] != "TorrServer" || parts[2] != "stream" ||
+            parts[3].Length != 64 || !parts[3].All(Uri.IsHexDigit))
+            return BadRequest(new { error = "У выбранного элемента нет корректного потока TorrServer." });
+
+        return Ok(await _server.CheckPlaybackAsync(parts[3], token).ConfigureAwait(false));
+    }
+
+    [Authorize]
     [HttpPost("prepare")]
     public async Task<IActionResult> Prepare([FromBody] PrepareSelection input, CancellationToken token)
     {
