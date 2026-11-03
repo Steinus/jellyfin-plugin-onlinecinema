@@ -12,12 +12,15 @@ public sealed class CatalogService
 {
     private readonly IHttpClientFactory _clients;
     private readonly ILibraryManager _library;
+    private readonly StrmLibraryService _strm;
     private readonly ILogger<CatalogService> _logger;
 
-    public CatalogService(IHttpClientFactory clients, ILibraryManager library, ILogger<CatalogService> logger)
+    public CatalogService(IHttpClientFactory clients, ILibraryManager library,
+        StrmLibraryService strm, ILogger<CatalogService> logger)
     {
         _clients = clients;
         _library = library;
+        _strm = strm;
         _logger = logger;
     }
 
@@ -131,7 +134,10 @@ public sealed class CatalogService
                 Limit = 1
             };
             BaseItem? first = _library.GetItemsResult(query).Items.FirstOrDefault();
-            local = first?.Id.ToString("D");
+            // STRM created by this plugin belongs to the online catalog.
+            // Do not treat it as a physical local copy: keep its Torrent/STRM
+            // buttons visible when the user returns to the catalog.
+            local = _strm.IsManagedLibraryItem(first) ? null : first?.Id.ToString("D");
         }
         catch (Exception ex)
         {
