@@ -123,6 +123,9 @@ public sealed class TorrServerController : ControllerBase
     // The stream URL uses an unguessable, expiring bearer ticket instead.
     [AllowAnonymous]
     [HttpGet("stream/{ticket}")]
-    public Task Stream(string ticket, CancellationToken token)
+    [HttpHead("stream/{ticket}")]
+    [HttpGet("stream/{ticket}/video.{extension}")]
+    [HttpHead("stream/{ticket}/video.{extension}")]
+    public Task Stream(string ticket, string? extension, CancellationToken token)
         => _server.ProxyAsync(ticket, Request, Response, token);
 }
