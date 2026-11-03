@@ -31,6 +31,17 @@
    <h3>Потоковый сервер</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
    <div class="inputContainer">
+     <label class="inputLabel" for="OcStreamDelivery">Передача видео в плеер Jellyfin</label>
+     <select is="emby-select" id="OcStreamDelivery">
+       <option value="proxy">Через прокси плагина Jellyfin (прежний способ)</option>
+       <option value="direct">Напрямую TorrServer → плеер Jellyfin (тестовый режим)</option>
+     </select>
+     <div class="fieldDescription">Прямой режим использует адрес TorrServer из настроек.
+       Мобильное устройство должно иметь к нему доступ; для просмотра вне домашней сети
+       нужен доступный извне адрес TorrServer или прокси. При включённом пароле TorrServer
+       плагин автоматически использует защищённый прокси.</div>
+   </div>
+   <div class="inputContainer">
      <button is="emby-button" type="button" class="raised emby-button" id="OcTestTorrServer">Проверить подключение к TorrServer</button>
      <div id="OcTorrServerTestResult" class="fieldDescription" style="white-space:pre-wrap;margin-top:10px;" aria-live="polite"></div>
    </div>
@@ -75,7 +86,7 @@
    OcTmdb:'TmdbApiKey', OcLanguage:'Language',
    OcProvider:'TorrentSearchProvider', OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
    OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
-   OcTorrServer:'TorrServerUrl', OcUsername:'TorrServerUsername',
+   OcTorrServer:'TorrServerUrl', OcStreamDelivery:'StreamDeliveryMode', OcUsername:'TorrServerUsername',
    OcPassword:'TorrServerPassword',
    OcAutoMode:'AutoPlayMode', OcAutoQuality:'AutoPlayQuality', OcAutoSort:'AutoPlaySort',
    OcAutoAttempts:'AutoPlayMaxAttempts', OcMinSeeders:'AutoPlayMinSeeders',
