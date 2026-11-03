@@ -22,6 +22,12 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     // With TorrServer basic auth, direct mode falls back to proxy so credentials
     // are never disclosed in the playback URL.
     public string StreamDeliveryMode { get; set; } = "proxy";
+    // strm registers a real Jellyfin library entry so the stock playback
+    // pipeline can select compatible codecs, subtitles and transcode.
+    public string PlaybackBackend { get; set; } = "strm";
+    public string StrmMoviesDirectory { get; set; } = string.Empty;
+    public string StrmSeriesDirectory { get; set; } = string.Empty;
+    public bool KeepStrmAfterPlayback { get; set; } = true;
     // Behaviour of the custom Play action on an online catalog item.
     // auto = search and play automatically; previous = replay selected media, otherwise auto;
     // manual = open the torrent list and let the user choose.
