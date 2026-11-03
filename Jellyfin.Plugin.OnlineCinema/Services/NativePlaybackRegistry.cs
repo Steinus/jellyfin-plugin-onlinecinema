@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Jellyfin.Plugin.OnlineCinema.Models;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Dto;
@@ -17,6 +18,7 @@ namespace Jellyfin.Plugin.OnlineCinema.Services;
 public sealed class NativePlaybackRegistry
 {
     private readonly ConcurrentDictionary<Guid, NativeItem> _items = new();
+    private readonly ConcurrentDictionary<Guid, NativeCatalogEntry> _catalog = new();
     private readonly IServerApplicationHost _host;
 
     public NativePlaybackRegistry(IServerApplicationHost host) => _host = host;
@@ -38,11 +40,82 @@ public sealed class NativePlaybackRegistry
         return null;
     }
 
+    public Guid RegisterCatalog(CatalogDetails details)
+    {
+        var id = Guid.NewGuid();
+        _catalog[id] = new NativeCatalogEntry(id, details, DateTimeOffset.UtcNow.AddHours(3));
+        Prune();
+        return id;
+    }
+
+    public NativeCatalogEntry? GetCatalog(Guid id)
+    {
+        if (!_catalog.TryGetValue(id, out var entry)) return null;
+        if (entry.Expires > DateTimeOffset.UtcNow) return entry;
+        _catalog.TryRemove(id, out _);
+        return null;
+    }
+
+    public BaseItemDto BuildCatalogItem(NativeCatalogEntry entry)
+    {
+        var data = entry.Details;
+        var metadata = data.Item;
+        var isMovie = metadata.Type == "movie";
+        int? year = int.TryParse(metadata.Year, out var parsed) ? parsed : null;
+        var dto = new BaseItemDto
+        {
+            Id = entry.Id,
+            ServerId = _host.SystemId,
+            Name = metadata.Title,
+            OriginalTitle = metadata.OriginalTitle,
+            Overview = metadata.Overview,
+            Type = isMovie ? BaseItemKind.Movie : BaseItemKind.Series,
+            MediaType = isMovie ? MediaType.Video : default,
+            IsFolder = !isMovie,
+            ProductionYear = year,
+            CommunityRating = (float)metadata.Rating,
+            Genres = data.Genres.ToArray(),
+            RunTimeTicks = data.Runtime > 0 ? data.Runtime * TimeSpan.TicksPerMinute : null,
+            PrimaryImageAspectRatio = 2d / 3d,
+            ProviderIds = new Dictionary<string, string>
+            {
+                ["Tmdb"] = metadata.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            },
+            UserData = new UserItemDataDto
+            {
+                Key = "onlinecinema:tmdb:" + metadata.Type + ":" + metadata.Id,
+                PlaybackPositionTicks = 0,
+                PlayCount = 0,
+                Played = false,
+                IsFavorite = false
+            }
+        };
+        if (!string.IsNullOrEmpty(metadata.PosterUrl))
+            dto.ImageTags = new Dictionary<ImageType, string> { [ImageType.Primary] = "onlinecinema" };
+        if (!string.IsNullOrEmpty(metadata.BackdropUrl))
+            dto.BackdropImageTags = ["onlinecinema"];
+        return dto;
+    }
+
+    public string? GetCatalogImage(Guid id, ImageType imageType)
+    {
+        var record = GetCatalog(id);
+        if (record is null) return null;
+        return imageType switch
+        {
+            ImageType.Primary => record.Details.Item.PosterUrl,
+            ImageType.Backdrop => record.Details.Item.BackdropUrl,
+            _ => null
+        };
+    }
+
     private void Prune()
     {
-        if (_items.Count < 500) return;
+        if (_items.Count < 500 && _catalog.Count < 500) return;
         foreach (var entry in _items.Where(pair => pair.Value.Expires <= DateTimeOffset.UtcNow))
             _items.TryRemove(entry.Key, out _);
+        foreach (var entry in _catalog.Where(pair => pair.Value.Expires <= DateTimeOffset.UtcNow))
+            _catalog.TryRemove(entry.Key, out _);
     }
 
     private MediaSourceInfo Source(NativeItem entry, HttpRequest request)
@@ -100,3 +173,5 @@ public sealed class NativePlaybackRegistry
 }
 
 public sealed record NativeItem(Guid Id, string Title, string StreamPath, string Container, DateTimeOffset Expires);
+
+public sealed record NativeCatalogEntry(Guid Id, CatalogDetails Details, DateTimeOffset Expires);
