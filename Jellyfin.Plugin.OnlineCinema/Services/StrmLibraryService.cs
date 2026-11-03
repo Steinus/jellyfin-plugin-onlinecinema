@@ -92,25 +92,93 @@ public sealed class StrmLibraryService : IDisposable
         var configured = isSeries
             ? Plugin.Instance?.Configuration.StrmSeriesDirectory
             : Plugin.Instance?.Configuration.StrmMoviesDirectory;
-        if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathFullyQualified(configured))
-            throw new InvalidOperationException(isSeries
-                ? "Укажи полный путь папки STRM для сериалов в настройках Online Cinema."
-                : "Укажи полный путь папки STRM для фильмов в настройках Online Cinema.");
-
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured));
-        var allowed = _library.GetVirtualFolders().Any(v => v.Locations.Any(location =>
-        {
-            var registered = Path.TrimEndingDirectorySeparator(Path.GetFullPath(location));
-            return full.Equals(registered, StringComparison.OrdinalIgnoreCase) ||
-                   full.StartsWith(registered + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-        }));
-        if (!allowed)
+        if (string.IsNullOrWhiteSpace(configured))
             throw new InvalidOperationException(
-                "Папка STRM не находится внутри подключённой медиатеки Jellyfin. " +
-                "Сначала добавь её в Jellyfin как библиотеку " +
-                (isSeries ? "«Сериалы»." : "«Фильмы»."));
+                "Путь STRM для " + (isSeries ? "сериалов" : "фильмов") +
+                " не указан в настройках Online Cinema.");
+        if (!Path.IsPathFullyQualified(configured))
+            throw new InvalidOperationException(
+                "Путь должен быть абсолютным путём сервера Jellyfin, например /sharefolder/Video2/test/mov.");
+
+        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured.Trim()));
+        if (full == Path.GetPathRoot(full))
+            throw new InvalidOperationException(
+                "Нельзя сохранять STRM в корневой каталог файловой системы.");
+        // A path visible in the NAS and a Jellyfin library location can be
+        // represented by different aliases/symlinks. Requiring a textual
+        // prefix of GetVirtualFolders() rejected valid Asustor paths with 400
+        // even before the plugin attempted to create a file. Library indexing
+        // is validated separately, after creation.
+        if (!Directory.Exists(full))
+            throw new InvalidOperationException(
+                "Папка STRM недоступна процессу Jellyfin: " + full +
+                ". Проверь путь внутри окружения Jellyfin и доступ к каталогу.");
         return full;
     }
+
+    private bool IsInsideJellyfinLibrary(string fullPath)
+    {
+        try
+        {
+            return _library.GetVirtualFolders().Any(v => v.Locations.Any(location =>
+            {
+                if (string.IsNullOrWhiteSpace(location)) return false;
+                var registered = Path.TrimEndingDirectorySeparator(Path.GetFullPath(location));
+                return fullPath.Equals(registered, StringComparison.OrdinalIgnoreCase) ||
+                    fullPath.StartsWith(registered + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Online Cinema: unable to compare STRM path with Jellyfin library locations");
+            return false;
+        }
+    }
+
+    private object InspectFolder(bool isSeries)
+    {
+        string full;
+        try { full = ValidatedRoot(isSeries); }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return new { configured = false, exists = false, writable = false,
+                inLibrary = false, message = ex.Message };
+        }
+
+        var probePath = Path.Combine(full, ".onlinecinema-write-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using (var probe = new FileStream(probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                probe.WriteByte(0x31);
+            return new { configured = true, exists = true, writable = true,
+                inLibrary = IsInsideJellyfinLibrary(full),
+                message = "Путь доступен, тестовый файл создан и удалён. " +
+                    "Если папка ещё не включена в медиатеку Jellyfin, добавь её как источник библиотеки." };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new { configured = true, exists = true, writable = false,
+                inLibrary = IsInsideJellyfinLibrary(full),
+                message = "Jellyfin не может записать файл в папку: " + ex.Message };
+        }
+        finally
+        {
+            try { if (File.Exists(probePath)) File.Delete(probePath); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { _logger.LogWarning(ex, "Online Cinema: could not remove STRM write probe"); }
+        }
+    }
+
+    public object Diagnose()
+        => new
+        {
+            movies = InspectFolder(false),
+            series = InspectFolder(true),
+            torrServerAuthConfigured = !string.IsNullOrWhiteSpace(
+                Plugin.Instance?.Configuration.TorrServerUsername),
+            note = "STRM создаётся по абсолютному пути, видимому самому серверу Jellyfin. " +
+                "Для индексации созданную папку также необходимо добавить в медиатеку."
+        };
 
     public bool IsManagedLibraryItem(BaseItem? item)
     {
@@ -194,7 +262,9 @@ public sealed class StrmLibraryService : IDisposable
             return new { configured = false, message = ex.Message, hasStrm = false, entries = Array.Empty<StrmEntry>() };
         }
         if (!Directory.Exists(folder))
-            return new { configured = true, message = "", hasStrm = false, entries = Array.Empty<StrmEntry>() };
+            return new { configured = true, message = "", hasStrm = false,
+                inLibrary = IsInsideJellyfinLibrary(ValidatedRoot(entry.Details.Item.Type == "tv")),
+                entries = Array.Empty<StrmEntry>() };
         // Restrict discovery to our deterministic TMDB folder and never traverse
         // files from unrelated movies/series in the user's Jellyfin library.
         var files = Directory.EnumerateFiles(folder, "*.strm", SearchOption.AllDirectories)
@@ -204,6 +274,7 @@ public sealed class StrmLibraryService : IDisposable
         {
             configured = true,
             message = "",
+            inLibrary = IsInsideJellyfinLibrary(ValidatedRoot(entry.Details.Item.Type == "tv")),
             hasStrm = files.Length > 0,
             entries = files.Select(Describe).ToArray()
         };
@@ -261,10 +332,20 @@ public sealed class StrmLibraryService : IDisposable
 
         // Notify Jellyfin's native library scanner rather than mocking Items
         // or PlaybackInfo. FindByPath will resolve a genuine library item.
-        _monitor.ReportFileSystemChanged(fullPath);
+        try { _monitor.ReportFileSystemChanged(fullPath); }
+        catch (Exception ex)
+        {
+            // The file exists even if the library monitor is unavailable.
+            _logger.LogWarning(ex, "Online Cinema: STRM created but the library monitor could not be notified");
+        }
         var imported = Describe(fullPath);
+        var inLibrary = IsInsideJellyfinLibrary(root);
         return new { created = true, fileName = imported.Name,
-            itemId = imported.ItemId, waitingForScan = imported.ItemId is null };
+            itemId = imported.ItemId, waitingForScan = imported.ItemId is null,
+            inLibrary,
+            message = inLibrary ? "STRM создан. Ожидание индексации Jellyfin." :
+                "STRM создан, но папка не совпала с зарегистрированными путями медиатек. " +
+                "Если файл не появится в Jellyfin, добавь каталог в медиатеку или проверь путь через симлинк." };
     }
 
     private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs args)
