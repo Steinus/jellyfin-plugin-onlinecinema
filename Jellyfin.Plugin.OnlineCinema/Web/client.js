@@ -652,8 +652,7 @@
                     }
                 });
                 text.append(findReleases);
-                // Trigger the first JacRed search automatically for online titles.
-                findReleases.click();
+                // Manual search only: never query JacRed/Prowlarr on card open.
             }
             text.append(dom('p', 'oc-note', 'Для воспроизведения выберите magnet-раздачу и видеофайл.'));
             header.append(poster, text);
