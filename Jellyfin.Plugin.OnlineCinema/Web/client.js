@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0120) return;
-    window.__onlineCinemaV0120 = true;
+    if (window.__onlineCinemaV0121) return;
+    window.__onlineCinemaV0121 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -1012,7 +1012,88 @@
             }
         }
 
+        const strmButton = button('oc-strm-button', 'STRM', async () => {
+            try { await openExistingStrm(); }
+            catch (error) { showError(messageBox, apiError(error), () => openExistingStrm()); }
+        });
+        strmButton.hidden = true;
+        const strmPicker = dom('div', 'oc-strm-picker');
+        strmPicker.hidden = true;
+
+        async function refreshStrmStatus() {
+            const state = await api('Strm/status/' + encodeURIComponent(nativeId));
+            const entries = read(state, 'entries', []);
+            strmButton.hidden = !read(state, 'hasStrm', false) || !Array.isArray(entries) || entries.length === 0;
+            return Array.isArray(entries) ? entries : [];
+        }
+
+        async function openExistingStrm() {
+            const entries = await refreshStrmStatus();
+            if (!entries.length) throw Error('STRM для этого фильма или сериала ещё не создан.');
+            if (!strmPicker.hidden) {
+                strmPicker.hidden = true;
+                return;
+            }
+            if (entries.length === 1) {
+                const itemId = read(entries[0], 'itemId', null);
+                if (!itemId) throw Error('STRM уже создан, но Jellyfin ещё не проиндексировал файл. ' +
+                    'Дождись сканирования медиатеки и нажми STRM снова.');
+                await launchJellyfinPlayer(itemId, messageBox);
+                return;
+            }
+            strmPicker.replaceChildren(dom('p', 'oc-message', 'Выбери сохранённый эпизод:'));
+            for (const entry of entries) {
+                const buttonLabel = String(read(entry, 'name', 'Эпизод'));
+                strmPicker.append(button('oc-file-button', buttonLabel, async () => {
+                    const itemId = read(entry, 'itemId', null);
+                    if (!itemId) {
+                        showError(messageBox, 'Jellyfin ещё индексирует этот STRM. Повтори попытку.', null);
+                        return;
+                    }
+                    try { await launchJellyfinPlayer(itemId, messageBox); }
+                    catch (error) { showError(messageBox, apiError(error), null); }
+                }));
+            }
+            strmPicker.hidden = false;
+        }
+
+        async function waitForStrmItem(statusBox) {
+            const deadline = Date.now() + 75000;
+            while (Date.now() < deadline) {
+                if (!isCurrentNative(nativeId))
+                    throw Error('Карточка закрыта во время ожидания индексации STRM.');
+                const entries = await refreshStrmStatus();
+                const ready = entries.find(x => !!read(x, 'itemId', null));
+                if (ready) return String(read(ready, 'itemId', ''));
+                if (statusBox?.isConnected)
+                    statusBox.textContent = 'STRM создан. Ожидаем, пока Jellyfin добавит его в медиатеку...';
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+            throw Error('STRM файл создан, но Jellyfin пока не добавил его в медиатеку. ' +
+                'Проверь доступ к папке, включи мониторинг файлов или запусти сканирование медиатеки.');
+        }
+
         async function selectAndPlay(session, file, statusBox) {
+            await optionsReady;
+            if (opts.playbackBackend === 'strm') {
+                if (statusBox?.isConnected)
+                    statusBox.textContent = 'Создаём STRM в медиатеке Jellyfin...';
+                let created;
+                try {
+                    created = await apiPost('Strm/create', {
+                        nativeId, session, fileIndex: Number(read(file, 'id', 0))
+                    });
+                } catch (error) {
+                    throw Error('Создание STRM: ' + apiError(error));
+                }
+                let realId = read(created, 'itemId', null);
+                if (!realId) realId = await waitForStrmItem(statusBox);
+                await refreshStrmStatus();
+                if (statusBox?.isConnected)
+                    statusBox.textContent = 'Воспроизводим настоящий STRM элемент Jellyfin...';
+                await launchJellyfinPlayer(realId, statusBox);
+                return;
+            }
             if (statusBox?.isConnected)
                 statusBox.textContent = 'Выбираем файл в TorrServer...';
             let result;
@@ -1062,11 +1143,20 @@
                     return;
                 }
                 if (mode === 'previous') {
-                    const state = await api('Native/item/' + encodeURIComponent(nativeId));
-                    const selected = read(state, 'selectedVideoId', null);
-                    if (selected) {
-                        await launchJellyfinPlayer(selected, statusBox);
-                        return;
+                    if (opts.playbackBackend === 'strm') {
+                        const entries = await refreshStrmStatus();
+                        const ready = entries.find(x => !!read(x, 'itemId', null));
+                        if (ready) {
+                            await launchJellyfinPlayer(read(ready, 'itemId', ''), statusBox);
+                            return;
+                        }
+                    } else {
+                        const state = await api('Native/item/' + encodeURIComponent(nativeId));
+                        const selected = read(state, 'selectedVideoId', null);
+                        if (selected) {
+                            await launchJellyfinPlayer(selected, statusBox);
+                            return;
+                        }
                     }
                 }
                 statusBox.textContent = 'Автопоиск раздач...';
@@ -1122,7 +1212,8 @@
             catch (error) { diagnosticBox.textContent = apiError(error); }
         });
         sourceCheckButton.hidden = !lastSelectedVideoId;
-        actions.append(torrentToggle, messageBox, sourceCheckButton, diagnosticBox, host);
+        actions.append(torrentToggle, strmButton, strmPicker,
+            messageBox, sourceCheckButton, diagnosticBox, host);
         ribbon.after(actions);
 
         function selectField(label, values, selected, onChange) {
@@ -1252,6 +1343,7 @@
         const optionsReady = api('Native/options').then(settings => {
             opts = {
                 ...opts,
+                playbackBackend: String(read(settings, 'playbackBackend', 'strm')),
                 autoPlayMode: String(read(settings, 'autoPlayMode', opts.autoPlayMode)),
                 autoPlayQuality: String(read(settings, 'autoPlayQuality', opts.autoPlayQuality)),
                 autoPlaySort: String(read(settings, 'autoPlaySort', opts.autoPlaySort)),
@@ -1268,6 +1360,9 @@
             });
         }).catch(error => {
             console.warn('Online Cinema: playback preferences unavailable:', error);
+        });
+        optionsReady.then(() => refreshStrmStatus()).catch(error => {
+            console.warn('Online Cinema: STRM status unavailable:', error);
         });
         return true;
     }
