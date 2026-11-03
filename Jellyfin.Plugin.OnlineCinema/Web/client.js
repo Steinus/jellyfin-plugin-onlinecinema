@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0125) return;
-    window.__onlineCinemaV0125 = true;
+    if (window.__onlineCinemaV0128) return;
+    window.__onlineCinemaV0128 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -84,6 +84,8 @@
         { key: 'top-series', title: 'Лучшие сериалы', subtitle: 'Сериалы с высокими оценками', icon: '🏆', type: 'tv', category: 'top_rated' }
     ];
 
+    const runningAutoplay = new Set();
+    const failedTorrents = new Map();
     const state = {
         screen: 'home',
         generation: 0,
@@ -116,7 +118,8 @@
             try { data = JSON.parse(error.responseText); } catch (_) { /* non-JSON */ }
         }
         const message = read(data, 'error', null) || read(data, 'message', null) || error?.message || error?.statusText;
-        return String(message || 'Не удалось связаться с Jellyfin/TMDB');
+        return (Number(error?.status || 0) >= 400 ? 'HTTP ' + error.status + ': ' : '') +
+            String(message || 'Не удалось связаться с Jellyfin/TMDB');
     }
 
     async function api(route) {
@@ -142,9 +145,9 @@
     // Jellyfin clients may require the MediaBrowser Authorization header,
     // whereas a standalone fetch with X-Emby-Token is rejected with HTTP 401.
     // The same client already authenticates torrent search/prepare requests.
-    async function postStrmCreate(data) {
+    async function postChannelTestSelect(data) {
         try {
-            return await apiPost('Strm/create', data);
+            return await apiPost('ChannelTest/select', data);
         } catch (error) {
             const detail = apiError(error);
             // Preserve any useful server validation message that the client
@@ -158,7 +161,24 @@
             !!document.querySelector('#videoOsdPage:not(.hide), .videoOsdPage:not(.hide)');
     }
 
-    async function launchJellyfinPlayer(itemId, zone) {
+    function playbackErrorDialog() {
+        const matcher = /Ошибка воспроизведения|фатальной ошибки проигрывателя|Playback Error|Fatal Player Error/i;
+        const nodes = document.querySelectorAll('[role="dialog"],[role="alertdialog"],.dialog,.dialogContainer,.MuiDialog-root,.modal');
+        for (const node of nodes) {
+            const rect = node.getBoundingClientRect();
+            if (rect.width > 10 && rect.height > 10 && matcher.test(node.textContent || ''))
+                return node;
+        }
+        return null;
+    }
+    function closePlaybackError(dialog) {
+        const root = dialog?.isConnected ? dialog : playbackErrorDialog();
+        const confirm = Array.from(root?.querySelectorAll('button,[role="button"]') || [])
+            .find(b => /^(Понятно|OK|ОК|Close|Закрыть|Got it)$/i.test((b.textContent || '').trim()));
+        confirm?.click();
+    }
+
+    async function launchJellyfinPlayer(itemId, zone, monitor = false) {
         const client = window.ApiClient;
         if (!client || !itemId) throw Error('Нет подключения к Jellyfin или ID видео.');
 
@@ -221,71 +241,54 @@
             throw new Error('Клиент Jellyfin не обработал команду воспроизведения. Не удалось найти активный обработчик медиатеки.');
         }
 
-        // A handled click is not proof the stream started. Make a failure
-        // visible rather than leaving "Открываем..." on screen indefinitely.
-        await new Promise(resolve => setTimeout(resolve, 6000));
-        // Embedded Android Jellyfin can open its native player outside the
-        // web routing tree. A successful Play command must not be treated as
-        // failure merely because #/video is absent or a native Activity is used.
-        if (!isVideoPageOpen())
-            console.info('Online Cinema: playback dispatched; video UI may be owned by the native client.');
+        // A successful Play dispatch is not sufficient: Jellyfin may show
+        // its fatal-player modal several seconds later.
+        const until = Date.now() + (monitor ? 15000 : 6000);
+        let videoActiveSince = 0;
+        while (Date.now() < until) {
+            const dialog = monitor ? playbackErrorDialog() : null;
+            if (dialog) {
+                const error = new Error('Штатный плеер Jellyfin сообщил о фатальной ошибке.');
+                error.playerFatal = true;
+                error.dialog = dialog;
+                throw error;
+            }
+            if (monitor) {
+                const isPlaying = Array.from(document.querySelectorAll('video')).some(v =>
+                    !v.paused && v.readyState >= 2 && v.currentTime > 0);
+                if (isPlaying && !videoActiveSince) videoActiveSince = Date.now();
+                if (!isPlaying) videoActiveSince = 0;
+                if (videoActiveSince && Date.now() - videoActiveSince >= 7500) return;
+            }
+            await new Promise(r => setTimeout(r, 350));
+        }
+        if (monitor && !videoActiveSince)
+            console.warn('Online Cinema: play command accepted, real video playback not verified.');
     }
 
-    // Single path for both native Jellyfin detail cards and the fallback
-    // Online Cinema catalog. No virtual item is ever prepared or played here.
-    async function createAndPlayStrm(nativeId, session, fileIndex, zone, stillActive = () => true, mediaType = 'movie') {
+    // Test #1: register a real channel item, probe all audio/subtitle tracks,
+    // and let Jellyfin itself build PlaybackInfo and its FFmpeg/HLS route.
+    async function createAndPlayChannel(nativeId, session, fileIndex, zone, stillActive = () => true) {
         const id = Number(fileIndex);
         if (!Number.isInteger(id) || id < 1)
             throw Error('TorrServer не вернул корректный индекс видеофайла.');
         if (!stillActive()) throw Error('Карточка была закрыта.');
-
         if (zone?.isConnected)
-            zone.textContent = 'Шаг 1/3: создаём STRM в медиатеке Jellyfin...';
-        let created;
-        try {
-            created = await postStrmCreate({ nativeId, session, fileIndex: id });
-        } catch (error) {
-            let detail = apiError(error);
-            try {
-                const diagnostic = await api('Strm/diagnose');
-                const root = read(diagnostic, String(mediaType) === 'tv'
-                    ? 'series' : 'movies', null);
-                if (root && (!read(root, 'configured', false) || !read(root, 'writable', false)))
-                    detail += ' · Проверка папки: ' + String(read(root, 'message', 'нет данных'));
-                if (read(diagnostic, 'torrServerAuthConfigured', false))
-                    detail += ' · В TorrServer настроен пользователь; прямая STRM-ссылка требует доступа без Basic Auth.';
-            } catch (_) { /* server response itself remains the main error */ }
-            throw Error('STRM не создан: ' + detail);
-        }
-        const name = String(read(created, 'fileName', ''));
-        if (!read(created, 'created', false) || !name)
-            throw Error('Сервер не подтвердил создание STRM. Плеер не запускается.');
-
-        let jellyfinId = String(read(created, 'itemId', '') || '');
-        if (jellyfinId && zone?.isConnected)
-            zone.textContent = 'STRM зарегистрирован в базе Jellyfin сразу, без сканирования.';
-        const deadline = Date.now() + 15000;
-        while (!jellyfinId && Date.now() < deadline) {
-            if (!stillActive()) throw Error('Карточка закрыта во время индексации STRM.');
-            if (zone?.isConnected)
-                zone.textContent = 'Шаг 2/3: STRM создан (' + name +
-                    '). Jellyfin индексирует файл...';
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            const status = await api('Strm/status/' + encodeURIComponent(nativeId));
-            const files = read(status, 'entries', []);
-            const match = Array.isArray(files) ? files.find(x =>
-                String(read(x, 'name', '')) === name && read(x, 'itemId', null)) : null;
-            if (match) jellyfinId = String(read(match, 'itemId', ''));
-        }
+            zone.textContent = 'Проверяем кодеки и звуковые дорожки через FFprobe Jellyfin...';
+        const created = await postChannelTestSelect({ nativeId, session, fileIndex: id });
+        const jellyfinId = String(read(created, 'itemId', ''));
         if (!jellyfinId)
-            throw Error('STRM создан, но быстрая регистрация в Jellyfin не сработала. ' +
-                'Проверь журнал Online Cinema: RegisterImmediately. ' +
-                'Плеер не запускается, чтобы не заставлять ждать долгого сканирования.');
-        if (!stillActive()) throw Error('Карточка закрыта до запуска STRM.');
+            throw Error('Канал Jellyfin не вернул ID видео. Сканировать библиотеку не нужно.');
+        if (!stillActive()) throw Error('Карточка закрыта до начала воспроизведения.');
+        const audio = Number(read(created, 'audioTracks', 0));
+        const subs = Number(read(created, 'subtitleTracks', 0));
+        console.info('Online Cinema test #1: FFprobe found', audio, 'audio tracks and',
+            subs, 'subtitle tracks. Direct Play disabled; Jellyfin transcoding enabled.');
         if (zone?.isConnected)
-            zone.textContent = 'Шаг 3/3: запускаем реальный STRM файл через Jellyfin...';
-        await launchJellyfinPlayer(jellyfinId, zone);
-        return { jellyfinId, name };
+            zone.textContent = 'Найдено аудиодорожек: ' + audio +
+                ', субтитров: ' + subs + '. Запускаем штатный плеер Jellyfin...';
+        await launchJellyfinPlayer(jellyfinId, zone, true);
+        return { jellyfinId };
     }
 
     function artworkUrl(value) {
@@ -682,7 +685,7 @@
                                         if (!session) throw Error('TorrServer не вернул сеанс.');
                                         const showFiles = async () => {
                                             if (!validGeneration(generation)) return;
-                                            const current = await api('TorrServer/files/' + encodeURIComponent(session));
+                                            const current = await apiPost('TorrServer/files', { session });
                                             const files = read(current, 'files', []);
                                             zone.replaceChildren();
                                             if (!files.length) {
@@ -694,7 +697,7 @@
                                                 /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(
                                                     String(read(file, 'path', ''))));
                                             const playFile = async (file) => {
-                                                setWorking(zone, 'Создаём STRM файл в Jellyfin...');
+                                                setWorking(zone, 'Подготавливаем видео для Jellyfin...');
                                                 try {
                                                     const registered = await apiPost('Native/open/' +
                                                         encodeURIComponent(info.type) + '/' +
@@ -706,8 +709,8 @@
                                                     }
                                                     const nativeId = read(registered, 'itemId', '');
                                                     if (!nativeId)
-                                                        throw Error('Не удалось зарегистрировать STRM-карточку Jellyfin.');
-                                                    await createAndPlayStrm(nativeId, session,
+                                                        throw Error('Не удалось открыть карточку Jellyfin.');
+                                                    await createAndPlayChannel(nativeId, session,
                                                         Number(read(file, 'id', 0)), zone,
                                                         () => validGeneration(generation), info.type);
                                                 } catch (error) {
@@ -948,8 +951,8 @@
     }
 
     function defaultCinemaOptions() {
-        return { playbackBackend: 'strm', autoPlayMode: 'auto', autoPlayQuality: '1080p', autoPlaySort: 'quality',
-            autoPlayMaxAttempts: 3, autoPlayMinSeeders: 0,
+        return { autoPlayQuality: '1080p', autoPlaySort: 'quality',
+            autoPlayMaxAttempts: 6, autoPlayMinSeeders: 0,
             exclude4K: false, exclude720p: false, excludeHdr: false, excludeDolbyVision: false };
     }
 
@@ -1005,7 +1008,6 @@
         actions.dataset.nativeId = nativeId;
         const messageBox = dom('div', 'oc-native-play-status');
         const diagnosticBox = dom('div', 'oc-playback-check');
-        let lastSelectedVideoId = String(read(info, 'selectedVideoId', '') || '');
         const host = dom('div', 'oc-native-results');
         host.hidden = true;
         let loaded = null;
@@ -1014,6 +1016,20 @@
         let resolutionFilter = 'all';
         let opts = defaultCinemaOptions();
         const filterState = { ...opts };
+        const failureKey = raw => info.type + ':' + info.tmdbId + ':' +
+            String(read(raw, 'indexer', '')) + ':' + String(read(raw, 'title', '')) +
+            ':' + String(read(raw, 'size', 0));
+        const recentlyFailed = raw => (failedTorrents.get(failureKey(raw)) || 0) > Date.now();
+        const rememberFailed = raw => failedTorrents.set(failureKey(raw), Date.now() + 10 * 60 * 1000);
+        const liveStatusBox = () => document.querySelector('#oc-native-controls .oc-native-play-status') || messageBox;
+        const setStatus = value => { const box = liveStatusBox(); if (box.isConnected) box.textContent = value; };
+        async function restoreDetails() {
+            if (isCurrentNative(nativeId)) return;
+            location.hash = '#/details?id=' + encodeURIComponent(nativeId);
+            for (let i = 0; i < 25 && !isCurrentNative(nativeId); i++)
+                await new Promise(r => setTimeout(r, 150));
+            await decorateNativeDetails();
+        }
 
         async function searchReleases(force = false) {
             if (!force && Array.isArray(loaded)) return loaded;
@@ -1087,150 +1103,71 @@
             return { session, files: videoFiles };
         }
 
-        async function checkSource(itemId) {
-            diagnosticBox.textContent = 'Проверяем реальные данные TorrServer...';
-            try {
-                const state = await api('TorrServer/check/' + encodeURIComponent(itemId));
-                const status = Number(read(state, 'status', 0));
-                const bytes = Number(read(state, 'receivedBytes', 0));
-                const ok = !!read(state, 'ok', false);
-                const detail = String(read(state, 'message', 'Нет описания'));
-                diagnosticBox.textContent = 'Проверка источника: HTTP ' + status +
-                    ', прочитано ' + bytes + ' байт. ' + detail;
-                diagnosticBox.classList.toggle('oc-source-bad', !ok);
-                if (!ok) throw Error('Видеопоток TorrServer не готов: ' + detail +
-                    ' (HTTP ' + status + '). Выбери другую раздачу или повтори попытку.');
-                return true;
-            } catch (error) {
-                // Keep the original error visible. A failed diagnostic query
-                // alone must not prevent native playback.
-                if (String(error.message || '').startsWith('Видеопоток TorrServer не готов:'))
-                    throw error;
-                diagnosticBox.textContent = 'Не удалось получить диагностику: ' + apiError(error);
-                return false;
-            }
-        }
-
-        const strmButton = button('oc-strm-button', 'STRM', async () => {
-            try { await openExistingStrm(); }
-            catch (error) { showError(messageBox, apiError(error), () => openExistingStrm()); }
-        });
-        strmButton.hidden = true;
-        const strmPicker = dom('div', 'oc-strm-picker');
-        strmPicker.hidden = true;
-
-        async function refreshStrmStatus() {
-            const state = await api('Strm/status/' + encodeURIComponent(nativeId));
-            const entries = read(state, 'entries', []);
-            strmButton.hidden = !read(state, 'hasStrm', false) || !Array.isArray(entries) || entries.length === 0;
-            return Array.isArray(entries) ? entries : [];
-        }
-
-        async function openExistingStrm() {
-            const entries = await refreshStrmStatus();
-            if (!entries.length) throw Error('STRM для этого фильма или сериала ещё не создан.');
-            if (!strmPicker.hidden) {
-                strmPicker.hidden = true;
-                return;
-            }
-            if (entries.length === 1) {
-                const itemId = read(entries[0], 'itemId', null);
-                if (!itemId) throw Error('STRM уже создан, но Jellyfin ещё не проиндексировал файл. ' +
-                    'Дождись сканирования медиатеки и нажми STRM снова.');
-                await launchJellyfinPlayer(itemId, messageBox);
-                return;
-            }
-            strmPicker.replaceChildren(dom('p', 'oc-message', 'Выбери сохранённый эпизод:'));
-            for (const entry of entries) {
-                const buttonLabel = String(read(entry, 'name', 'Эпизод'));
-                strmPicker.append(button('oc-file-button', buttonLabel, async () => {
-                    const itemId = read(entry, 'itemId', null);
-                    if (!itemId) {
-                        showError(messageBox, 'Jellyfin ещё индексирует этот STRM. Повтори попытку.', null);
-                        return;
-                    }
-                    try { await launchJellyfinPlayer(itemId, messageBox); }
-                    catch (error) { showError(messageBox, apiError(error), null); }
-                }));
-            }
-            strmPicker.hidden = false;
-        }
-
-        async function waitForStrmItem(statusBox, wantedName) {
-            const deadline = Date.now() + 75000;
-            while (Date.now() < deadline) {
-                if (!isCurrentNative(nativeId))
-                    throw Error('Карточка закрыта во время ожидания индексации STRM.');
-                const entries = await refreshStrmStatus();
-                const ready = entries.find(x => String(read(x, 'name', '')) === wantedName &&
-                    !!read(x, 'itemId', null));
-                if (ready) return String(read(ready, 'itemId', ''));
-                if (statusBox?.isConnected)
-                    statusBox.textContent = 'STRM создан. Ожидаем, пока Jellyfin добавит его в медиатеку...';
-                await new Promise(resolve => setTimeout(resolve, 1500));
-            }
-            throw Error('STRM файл создан, но Jellyfin пока не добавил его в медиатеку. ' +
-                'Проверь доступ к папке, включи мониторинг файлов или запусти сканирование медиатеки.');
-        }
-
         async function selectAndPlay(session, file, statusBox) {
-            await createAndPlayStrm(nativeId, session,
+            await createAndPlayChannel(nativeId, session,
                 Number(read(file, 'id', 0)), statusBox,
                 () => isCurrentNative(nativeId), info.type);
-            try { await refreshStrmStatus(); }
-            catch (error) { console.warn('Online Cinema: STRM button refresh failed', apiError(error)); }
         }
 
         async function automaticPlayback() {
-            const statusBox = messageBox;
-            let chosen = null;
+            const key = normalizeGuid(nativeId);
+            if (runningAutoplay.has(key)) return;
+            runningAutoplay.add(key);
             try {
                 await optionsReady;
-                const mode = opts.autoPlayMode || 'auto';
-                if (mode === 'manual') {
-                    statusBox.textContent = 'Открываем ручной выбор раздач...';
-                    await openTorrentList();
-                    return;
-                }
-                if (mode === 'previous') {
-                    const entries = await refreshStrmStatus();
-                    const ready = entries.find(x => !!read(x, 'itemId', null));
-                    if (ready) {
-                        await launchJellyfinPlayer(read(ready, 'itemId', ''), statusBox);
-                        return;
-                    }
-                }
-                statusBox.textContent = 'Автопоиск раздач...';
-                const all = await searchReleases();
-                const candidates = sortReleases(all.filter(x =>
-                    read(x, 'playable', false) && releaseMatches(x, opts)
-                ), opts);
-                if (!candidates.length) throw Error('Нет подходящих magnet-раздач с учётом фильтров. Измени настройки или нажми «Торренты».');
-                const maxAttempts = Math.max(1, Math.min(5, Number(opts.autoPlayMaxAttempts) || 3));
-                const failures = [];
-                for (let i = 0; i < Math.min(maxAttempts, candidates.length); i++) {
-                    chosen = candidates[i];
-                    statusBox.textContent = 'Проверяем раздачу ' + (i + 1) + '/' +
-                        Math.min(maxAttempts, candidates.length) + ': ' + read(chosen, 'title', '');
+                setStatus('Автопоиск доступных раздач...');
+                const found = await searchReleases(true);
+                const available = found.filter(r => read(r, 'playable', false) && releaseMatches(r, opts));
+                const ranked = sortReleases(available.filter(r => !recentlyFailed(r)), opts);
+                const candidates = [...ranked.filter(r => Number(read(r,'seeders',0)) > 0),
+                    ...ranked.filter(r => Number(read(r,'seeders',0)) <= 0)];
+                if (!candidates.length) throw Error(available.length
+                    ? 'Подходящие раздачи недавно завершились ошибкой. Подожди 10 минут или нажми «Торренты» → «Обновить поиск».'
+                    : 'Нет доступных раздач с magnet. Измени фильтры или нажми «Торренты».');
+                const limit = Math.min(candidates.length, Math.max(1,
+                    Math.min(10, Number(opts.autoPlayMaxAttempts) || 6)));
+                const errors = [];
+                for (let i = 0; i < limit; i++) {
+                    const release = candidates[i];
+                    const title = String(read(release, 'title', 'Раздача'));
+                    let lastError = null;
+                    setStatus('Проверяем торрент ' + (i+1) + '/' + limit + ': ' + title);
                     try {
-                        const prepared = await prepare(chosen, statusBox, true);
-                        const videos = [...prepared.files];
-                        // For series, select the first episode by filename rather than a bonus video.
-                        if (info.type === 'tv') {
-                            videos.sort((a, b) => String(read(a, 'path', '')).localeCompare(String(read(b, 'path', '')), undefined, { numeric: true }));
-                        } else {
-                            videos.sort((a, b) => Number(read(b, 'length', 0)) - Number(read(a, 'length', 0)));
+                        const prepared = await prepare(release, liveStatusBox(), true);
+                        const files = [...prepared.files];
+                        if (info.type === 'tv')
+                            files.sort((a,b) => String(read(a,'path','')).localeCompare(
+                                String(read(b,'path','')), undefined, { numeric:true }));
+                        else
+                            files.sort((a,b) => Number(read(b,'length',0)) - Number(read(a,'length',0)));
+                        for (const file of files.slice(0,3)) {
+                            try {
+                                setStatus('Проверяем видеофайл (' + (i+1) + '/' + limit + ')...');
+                                await selectAndPlay(prepared.session, file, liveStatusBox());
+                                return;
+                            } catch(error) {
+                                lastError = error;
+                                console.warn('Online Cinema: candidate failed', title, apiError(error));
+                                if (error?.playerFatal) {
+                                    closePlaybackError(error.dialog);
+                                    await restoreDetails();
+                                }
+                            }
                         }
-                        statusBox.textContent = 'Запускаем видео через Jellyfin...';
-                        await selectAndPlay(prepared.session, videos[0], statusBox);
-                        return;
-                    } catch (error) {
-                        failures.push(apiError(error));
+                    } catch(error) { lastError = error; }
+                    if (lastError) {
+                        rememberFailed(release);
+                        errors.push(title + ': ' + apiError(lastError));
                     }
+                    await restoreDetails();
+                    setStatus('Не запустилось. Пробуем следующую раздачу...');
                 }
-                throw Error('Ни одна раздача не запустилась: ' + failures.join('; '));
-            } catch (error) {
-                showError(statusBox, apiError(error), () => automaticPlayback());
+                throw Error('Не удалось воспроизвести ни одну из ' + errors.length +
+                    ' раздач. Последние ошибки: ' + errors.slice(-3).join('; '));
+            } catch(error) {
+                showError(liveStatusBox(), apiError(error), () => automaticPlayback());
+            } finally {
+                runningAutoplay.delete(key);
             }
         }
 
@@ -1244,17 +1181,31 @@
             }
             openTorrentList();
         });
-        const sourceCheckButton = button('oc-button', 'Проверить видеопоток TorrServer', async () => {
-            if (!lastSelectedVideoId) {
-                diagnosticBox.textContent = 'Сначала выбери раздачу и видеофайл.';
-                return;
+        const channelDiagnosticButton = button('oc-button', 'Диагностика Jellyfin', async () => {
+            diagnosticBox.textContent = 'Проверяем источник воспроизведения Jellyfin...';
+            try {
+                const state = await api('ChannelTest/status');
+                if (!read(state, 'ready', false)) {
+                    diagnosticBox.textContent = 'Тестовый Channel-элемент пока не зарегистрирован.';
+                    return;
+                }
+                const sources = read(state, 'sources', []);
+                diagnosticBox.textContent = 'Jellyfin: источников ' +
+                    Number(read(state, 'sourceCount', 0)) + '. ' +
+                    (Array.isArray(sources) ? sources.map(s =>
+                        String(read(s, 'container', '?')) + ': видео ' +
+                        Number(read(s, 'videoTracks', 0)) + ', аудио ' +
+                        Number(read(s, 'audioTracks', 0)) + ', субтитры ' +
+                        Number(read(s, 'subtitleTracks', 0)) + ', транскодирование ' +
+                        String(read(s, 'supportsTranscoding', false)) + ', DirectPlay ' +
+                        String(read(s, 'supportsDirectPlay', false)) + ', DirectStream ' +
+                        String(read(s, 'supportsDirectStream', false))
+                    ).join('; ') : 'Нет источников.');
+            } catch (error) {
+                diagnosticBox.textContent = 'Диагностика Jellyfin: ' + apiError(error);
             }
-            try { await checkSource(lastSelectedVideoId); }
-            catch (error) { diagnosticBox.textContent = apiError(error); }
         });
-        sourceCheckButton.hidden = !lastSelectedVideoId;
-        actions.append(torrentToggle, strmButton, strmPicker,
-            messageBox, sourceCheckButton, diagnosticBox, host);
+        actions.append(torrentToggle, messageBox, channelDiagnosticButton, diagnosticBox, host);
         ribbon.after(actions);
 
         function selectField(label, values, selected, onChange) {
@@ -1362,7 +1313,7 @@
                         const prepared = await prepare(raw, zone, false);
                         if (!isCurrentNative(nativeId)) return;
                         // Most movie torrents contain one video. One tap on
-                        // "Выбрать раздачу" should create STRM and play it.
+                        // "Выбрать раздачу" should start native playback without STRM.
                         if (prepared.files.length === 1) {
                             await selectAndPlay(prepared.session, prepared.files[0], zone);
                             return;
@@ -1375,11 +1326,13 @@
                                 try {
                                     await selectAndPlay(prepared.session, file, zone);
                                 } catch (error) {
+                                    rememberFailed(raw);
                                     showError(zone, apiError(error), null);
                                 }
                             }));
                         }
                     } catch (error) {
+                        rememberFailed(raw);
                         showError(zone, apiError(error), null);
                     }
                 }));
@@ -1390,11 +1343,9 @@
         const optionsReady = api('Native/options').then(settings => {
             opts = {
                 ...opts,
-                playbackBackend: String(read(settings, 'playbackBackend', 'strm')),
-                autoPlayMode: String(read(settings, 'autoPlayMode', opts.autoPlayMode)),
                 autoPlayQuality: String(read(settings, 'autoPlayQuality', opts.autoPlayQuality)),
                 autoPlaySort: String(read(settings, 'autoPlaySort', opts.autoPlaySort)),
-                autoPlayMaxAttempts: Number(read(settings, 'autoPlayMaxAttempts', 3)),
+                autoPlayMaxAttempts: Number(read(settings, 'autoPlayMaxAttempts', 6)),
                 autoPlayMinSeeders: Number(read(settings, 'autoPlayMinSeeders', 0))
             };
             Object.assign(filterState, {
@@ -1407,19 +1358,6 @@
             });
         }).catch(error => {
             console.warn('Online Cinema: playback preferences unavailable:', error);
-        });
-        optionsReady.then(async () => {
-            const state = await api('Strm/status/' + encodeURIComponent(nativeId));
-            if (!read(state, 'configured', false)) {
-                const warning = String(read(state, 'message',
-                    'Укажи путь STRM и подключи его к медиатеке Jellyfin.'));
-                if (messageBox?.isConnected)
-                    messageBox.textContent = 'STRM: ' + warning;
-            }
-            await refreshStrmStatus();
-        }).catch(error => {
-            if (messageBox?.isConnected)
-                messageBox.textContent = 'Проверка STRM: ' + apiError(error);
         });
         return true;
     }

@@ -19,7 +19,7 @@ public sealed class CinemaController : ControllerBase
     }
 
     [HttpGet("status")]
-    public object Status() => new { configured = _catalog.Configured, version = "0.1.25", catalog = "TMDB" };
+    public object Status() => new { configured = _catalog.Configured, version = "0.1.29", catalog = "TMDB" };
 
     [HttpGet("discover")]
     public async Task<ActionResult<CatalogResult>> Discover(

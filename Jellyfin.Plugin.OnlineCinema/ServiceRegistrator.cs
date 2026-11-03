@@ -1,5 +1,7 @@
 using Jellyfin.Plugin.OnlineCinema.Services;
 using Jellyfin.Plugin.OnlineCinema.Filters;
+using Jellyfin.Plugin.OnlineCinema.Channels;
+using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Tasks;
@@ -24,6 +26,8 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         services.AddHttpClient("OnlineCinemaTorrServerStream", c => c.Timeout = TimeSpan.FromHours(4));
         services.AddSingleton<TorrServerService>();
         services.AddSingleton<NativePlaybackRegistry>();
+        services.AddSingleton<ChannelPlaybackState>();
+        services.AddSingleton<IChannel, ChannelPlaybackTestChannel>();
         services.AddSingleton<StrmLibraryService>();
         services.AddSingleton<NativePlaybackFilter>();
         services.PostConfigure<Microsoft.AspNetCore.Mvc.MvcOptions>(options => options.Filters.AddService<NativePlaybackFilter>(order: -10));

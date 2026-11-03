@@ -30,56 +30,7 @@
    </div>
    <h3>Потоковый сервер</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
-   <h3>Воспроизведение через STRM — штатная медиатека Jellyfin</h3>
-   <div class="inputContainer">
-     <label class="inputLabel" for="OcPlaybackBackend">Способ запуска</label>
-     <select is="emby-select" id="OcPlaybackBackend">
-       <option value="strm">STRM в медиатеке Jellyfin (рекомендуется)</option>
-       
-     </select>
-     <div class="fieldDescription">STRM позволяет Jellyfin использовать собственный механизм
-     определения дорожек, субтитров и транскодирования. Папки должны быть включены
-     в медиатеки Jellyfin и доступны для записи процессу сервера.</div>
-   </div>
-   <div class="inputContainer">
-     <label class="inputLabel" for="OcStrmMovies">Папка STRM фильмов (полный путь на сервере Jellyfin)</label>
-     <input is="emby-input" id="OcStrmMovies" type="text" placeholder="/media/OnlineCinema/Movies">
-     <div class="fieldDescription">Добавь эту папку в Jellyfin как медиатеку «Фильмы».
-     Внутри появятся папки «Название (Год) [tmdbid-N]» с файлами .strm.</div>
-   </div>
-   <div class="inputContainer">
-     <label class="inputLabel" for="OcStrmSeries">Папка STRM сериалов (полный путь на сервере Jellyfin)</label>
-     <input is="emby-input" id="OcStrmSeries" type="text" placeholder="/media/OnlineCinema/Series">
-     <div class="fieldDescription">Добавь эту папку в Jellyfin как медиатеку «Сериалы».
-     Для распознавания серии её имя должно содержать S01E01 или 1x01.</div>
-   </div>
-   <div class="checkboxContainer">
-     <label class="emby-checkbox-label">
-       <input is="emby-checkbox" id="OcKeepStrm" type="checkbox">
-       <span>Сохранять STRM после завершения просмотра</span>
-     </label>
-     <div class="fieldDescription">Если снять галочку, новые STRM удаляются после остановки
-     воспроизведения (с небольшой задержкой). Существующие файлы, созданные
-     вручную, никогда не удаляются.</div>
-   </div>
-   <div class="inputContainer">
-     <button is="emby-button" type="button" class="raised emby-button" id="OcCheckStrmPaths">
-       Проверить папки STRM и права записи
-     </button>
-     <div id="OcStrmPathsResult" class="fieldDescription"
-          style="white-space:pre-wrap;margin-top:10px;" aria-live="polite"></div>
-   </div>
-   <div class="inputContainer">
-     <label class="inputLabel" for="OcStreamDelivery">Передача видео в плеер Jellyfin</label>
-     <select is="emby-select" id="OcStreamDelivery">
-       <option value="proxy">Через прокси плагина Jellyfin (прежний способ)</option>
-       <option value="direct">Напрямую TorrServer → плеер Jellyfin (тестовый режим)</option>
-     </select>
-     <div class="fieldDescription">Прямой режим использует адрес TorrServer из настроек.
-       Мобильное устройство должно иметь к нему доступ; для просмотра вне домашней сети
-       нужен доступный извне адрес TorrServer или прокси. При включённом пароле TorrServer
-       плагин автоматически использует защищённый прокси.</div>
-   </div>
+   <p class="fieldDescription">Воспроизведение через штатный плеер Jellyfin: виртуальный канал, определение дорожек сервером и транскодирование при необходимости. STRM не создаются.</p>
    <div class="inputContainer">
      <button is="emby-button" type="button" class="raised emby-button" id="OcTestTorrServer">Проверить подключение к TorrServer</button>
      <div id="OcTorrServerTestResult" class="fieldDescription" style="white-space:pre-wrap;margin-top:10px;" aria-live="polite"></div>
@@ -87,30 +38,22 @@
    <div class="inputContainer"><label class="inputLabel" for="OcUsername">TorrServer пользователь</label><input is="emby-input" id="OcUsername" type="text" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcPassword">TorrServer пароль</label><input is="emby-input" id="OcPassword" type="password" autocomplete="off"></div>
    <h3>Кнопка «Воспроизвести» — онлайн-каталог</h3>
-   <div class="inputContainer"><label class="inputLabel" for="OcAutoMode">Действие кнопки</label>
-     <select is="emby-select" id="OcAutoMode">
-       <option value="auto">Автопоиск → лучшая раздача → первый подходящий видеофайл → воспроизвести</option>
-       <option value="previous">Ранее выбранное видео, если есть; иначе автопоиск</option>
-       <option value="manual">Открыть список торрентов для ручного выбора</option>
-     </select>
-     <div class="fieldDescription">Автопоиск запускается только после нажатия «Воспроизвести», а не при открытии карточки.</div>
-   </div>
+   <p class="fieldDescription">«Воспроизвести» всегда запускает автопоиск и последовательно проверяет раздачи до успешного старта. Для ручного выбора используется кнопка «Торренты».</p>
    <div class="inputContainer"><label class="inputLabel" for="OcAutoQuality">Предпочтительное качество</label>
      <select is="emby-select" id="OcAutoQuality"><option value="1080p">1080p</option><option value="2160p">4K (2160p)</option><option value="720p">720p</option><option value="any">Любое разрешение</option></select>
    </div>
    <div class="inputContainer"><label class="inputLabel" for="OcAutoSort">Приоритет раздач</label>
      <select is="emby-select" id="OcAutoSort"><option value="quality">Качество → сиды → размер</option><option value="seeders">Сиды → качество</option><option value="size_asc">Размер по возрастанию</option><option value="size_desc">Размер по убыванию</option></select>
    </div>
-   <div class="inputContainer"><label class="inputLabel" for="OcAutoAttempts">Количество раздач для попытки автозапуска (1–5)</label><input is="emby-input" type="number" id="OcAutoAttempts" min="1" max="5" step="1"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcAutoAttempts">Максимум раздач для автоподбора (1–10)</label><input is="emby-input" type="number" id="OcAutoAttempts" min="1" max="10" step="1"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcMinSeeders">Минимальное количество сидов</label><input is="emby-input" type="number" id="OcMinSeeders" min="0" max="100000" step="1"></div>
    <h3>Фильтры качества (список и автозапуск)</h3>
    <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHide4K"><span>Скрывать 4K / 2160p / UHD</span></label></div>
    <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHide720"><span>Скрывать 720p</span></label></div>
    <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHideHdr"><span>Скрывать HDR / HDR10 / HDR10+</span></label></div>
    <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHideDv"><span>Скрывать Dolby Vision / DV</span></label></div>
-   <h3>Информация о потоках</h3>
-   <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcProbeStreams"><span>Определять аудио, видео и субтитры через FFprobe Jellyfin (экспериментально)</span></label></div>
-   <p class="fieldDescription">Определение дорожек не гарантирует транскодирование. Для него нужна отдельная совместимая интеграция потоков с обработчиками Jellyfin.</p>
+   <h3>Видеодорожки и звук</h3>
+   <p class="fieldDescription">FFprobe Jellyfin автоматически определяет видео, звуковые дорожки и субтитры. Для прямого HTTP-потока TorrServer Jellyfin использует штатный механизм воспроизведения и обработки кодеков.</p>
    <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcPreferLocal" type="checkbox"><span>Предпочитать локальную библиотеку</span></label></div>
    <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcGlobal" type="checkbox"><span>Включить в будущем поиск из общего поиска Jellyfin</span></label></div>
    <button is="emby-button" class="raised button-submit emby-button" type="submit"><span>Сохранить</span></button>
@@ -125,15 +68,12 @@
    OcTmdb:'TmdbApiKey', OcLanguage:'Language',
    OcProvider:'TorrentSearchProvider', OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
    OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
-   OcTorrServer:'TorrServerUrl', OcStreamDelivery:'StreamDeliveryMode',
-   OcPlaybackBackend:'PlaybackBackend', OcStrmMovies:'StrmMoviesDirectory', OcStrmSeries:'StrmSeriesDirectory',
-   OcKeepStrm:'KeepStrmAfterPlayback',
+   OcTorrServer:'TorrServerUrl',
    OcUsername:'TorrServerUsername',
    OcPassword:'TorrServerPassword',
-   OcAutoMode:'AutoPlayMode', OcAutoQuality:'AutoPlayQuality', OcAutoSort:'AutoPlaySort',
+   OcAutoQuality:'AutoPlayQuality', OcAutoSort:'AutoPlaySort',
    OcAutoAttempts:'AutoPlayMaxAttempts', OcMinSeeders:'AutoPlayMinSeeders',
    OcHide4K:'Exclude4K', OcHide720:'Exclude720p', OcHideHdr:'ExcludeHdr', OcHideDv:'ExcludeDolbyVision',
-   OcProbeStreams:'ProbeMediaStreams',
    OcPreferLocal:'PreferLocalLibrary',
    OcGlobal:'ShowGlobalSearchResults'
   };
@@ -143,30 +83,6 @@
     page.querySelector('#OcProwlarrGroup').style.display=active==='prowlarr'?'':'none';
   }
   page.querySelector('#OcProvider').addEventListener('change',updateProvider);
-  page.querySelector('#OcCheckStrmPaths').addEventListener('click', async function() {
-    var output=page.querySelector('#OcStrmPathsResult');
-    output.textContent='Проверяем путь и возможность записи от имени Jellyfin...';
-    try {
-      var data=await ApiClient.getJSON(ApiClient.getUrl('OnlineCinema/Strm/diagnose'));
-      var describe=function(title, root) {
-        if(!root) return title + ': нет данных.';
-        var exists=!!(root.exists ?? root.Exists);
-        var writable=!!(root.writable ?? root.Writable);
-        var inLibrary=!!(root.inLibrary ?? root.InLibrary);
-        return title + ': ' + (writable ? 'Запись работает' : 'Нет доступа на запись') +
-          '; папка ' + (exists?'найдена':'недоступна') +
-          '; медиатека ' + (inLibrary?'найдена':'не подтверждена') +
-          '. ' + (root.message ?? root.Message ?? '');
-      };
-      output.textContent=describe('Фильмы', data.movies || data.Movies) + '\n' +
-        describe('Сериалы', data.series || data.Series) + '\n' +
-        ((data.torrServerAuthConfigured || data.TorrServerAuthConfigured)
-          ? 'Внимание: указан пользователь TorrServer, прямая STRM-ссылка с Basic Auth не поддерживается.'
-          : '');
-    } catch(error) {
-      output.textContent='Проверка STRM недоступна: '+(error.message || error.statusText || 'неизвестная ошибка');
-    }
-  });
   page.querySelector('#OcTestTorrServer').addEventListener('click', async function() {
     var output=page.querySelector('#OcTorrServerTestResult');
     output.textContent='Проверяем сохранённые настройки TorrServer...';
@@ -186,7 +102,7 @@
      var el=page.querySelector('#'+id);
      if(el.type==='checkbox') el.checked=!!config[fields[id]];
      else if(el.type==='number') el.value=config[fields[id]]??0;
-     else el.value=id==='OcPlaybackBackend' ? 'strm' : (config[fields[id]]??'');
+     else el.value=(config[fields[id]]??'');
     });
     page.querySelector('#OcProvider').value=config.TorrentSearchProvider==='prowlarr'?'prowlarr':'jackett';
     updateProvider();
@@ -199,8 +115,7 @@
    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
     Object.keys(fields).forEach(function(id) {
      var el=page.querySelector('#'+id);
-     config[fields[id]]=id==='OcPlaybackBackend' ? 'strm'
-       :el.type==='checkbox'?el.checked
+     config[fields[id]]=el.type==='checkbox'?el.checked
        :el.type==='number'?Number(el.value)||0:el.value.trim();
     });
     return ApiClient.updatePluginConfiguration(pluginId,config);
