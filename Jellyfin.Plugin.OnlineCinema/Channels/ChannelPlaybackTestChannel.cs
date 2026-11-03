@@ -15,6 +15,10 @@ namespace Jellyfin.Plugin.OnlineCinema.Channels;
 public sealed class ChannelPlaybackState
 {
     private readonly object _sync = new();
+    // Jellyfin persists channel-list caches between restarts. A numeric-only
+    // DataVersion would restart at "1" and collide with older cached lists.
+    // Give each plugin lifetime its own namespace, without clearing any caches.
+    private readonly string _startupCacheKey = Guid.NewGuid().ToString("N");
     private ChannelPlaybackEntry? _active;
     private Guid? _lastItemId;
     // A new playback must NOT delete a channel item which is still in use
@@ -24,7 +28,8 @@ public sealed class ChannelPlaybackState
     private static readonly TimeSpan Retention = TimeSpan.FromHours(4);
     private long _version;
 
-    public string Version => Interlocked.Read(ref _version).ToString(CultureInfo.InvariantCulture);
+    public string Version => _startupCacheKey + "-" +
+        Interlocked.Read(ref _version).ToString(CultureInfo.InvariantCulture);
 
     public ChannelPlaybackEntry Set(string title, string fileName, MediaSourceInfo source)
     {

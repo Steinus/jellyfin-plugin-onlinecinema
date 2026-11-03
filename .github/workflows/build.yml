@@ -33,6 +33,10 @@ jobs:
           grep -Fq "GetMediaInfo(" Jellyfin.Plugin.OnlineCinema/Api/ChannelTestController.cs
           grep -Fq "resolved.Count != 1" Jellyfin.Plugin.OnlineCinema/Api/ChannelTestController.cs
           grep -Fq "Recent.Select(entry" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
+          # Jellyfin caches channel listings on disk across Jellyfin restarts.
+          # A per-process token must accompany the incrementing DataVersion.
+          grep -Fq "_startupCacheKey = Guid.NewGuid().ToString" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
+          grep -Fq "_startupCacheKey + \"-\"" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
           grep -Fq "playbackErrorDialog()" Jellyfin.Plugin.OnlineCinema/Web/client.js
           grep -Fq "failedTorrents" Jellyfin.Plugin.OnlineCinema/Web/client.js
           grep -Fq "searchReleases(true)" Jellyfin.Plugin.OnlineCinema/Web/client.js
@@ -58,7 +62,7 @@ jobs:
           metadata = {
             "guid":"e1c3807b-47d2-4dd8-a40d-e5e57990a621",
             "name":"Online Cinema",
-            "version":"0.1.28.0",
+            "version":"0.1.29.0",
             "targetAbi":"12.2.0.0",
             "status":"Active",
             "autoUpdate":False
@@ -67,5 +71,5 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: onlinecinema-0.1.28-channel-source-fix
+          name: onlinecinema-0.1.29-unique-channel-cache
           path: pkg/
