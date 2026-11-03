@@ -111,3 +111,50 @@
 .itemDetailPage .oc-release-tags{display:flex;gap:6px;flex-wrap:wrap}
 .itemDetailPage .oc-release-tag{font-size:10px;padding:3px 7px;background:#30465c;border-radius:7px;color:#d6eaff}
 .itemDetailPage .oc-native-actions .oc-primary-button{max-width:670px}
+
+
+/* v0.1.15: center Online Cinema controls within Jellyfin details on both desktop
+   and mobile. Never affect normal items already in the local library. */
+.itemDetailPage.oc-native-detail #oc-native-controls{
+    box-sizing:border-box;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    width:min(calc(100% - 32px), 1040px);
+    max-width:1040px;
+    margin:18px auto 28px!important;
+    padding:0 0 16px!important;
+}
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-native-play,
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-primary-button{
+    box-sizing:border-box;
+    width:min(100%, 670px);
+    max-width:670px!important;
+    margin:7px auto!important;
+    align-self:center;
+    text-align:center;
+}
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-native-results,
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-native-play-status{
+    box-sizing:border-box;
+    width:100%;
+    max-width:850px;
+    margin-inline:auto;
+}
+.itemDetailPage.oc-native-detail .mainDetailButtons .btnPlay,
+.itemDetailPage.oc-native-detail .mainDetailButtons .btnReplay,
+.itemDetailPage.oc-native-detail .mainDetailButtons [data-action="play"],
+.itemDetailPage.oc-native-detail .mainDetailButtons [data-action="resume"]{
+    display:none!important;
+}
+@media(max-width:750px){
+    .itemDetailPage.oc-native-detail #oc-native-controls{
+        width:calc(100% - 24px);
+        margin:12px auto 26px!important;
+    }
+    .itemDetailPage.oc-native-detail #oc-native-controls > .oc-native-play,
+    .itemDetailPage.oc-native-detail #oc-native-controls > .oc-primary-button{
+        width:100%;
+        max-width:none!important;
+    }
+}
