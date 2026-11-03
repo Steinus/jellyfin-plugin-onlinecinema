@@ -20,25 +20,17 @@ jobs:
         run: dotnet build Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj --no-restore -c Release
       - name: Validate web client JavaScript
         run: node --check Jellyfin.Plugin.OnlineCinema/Web/client.js
-      - name: Verify STRM-only client and server routes
+      - name: Verify channel playback test wiring
         run: |
-          grep -Fq "apiPost('Strm/create'" Jellyfin.Plugin.OnlineCinema/Web/client.js
-          if grep -Fq "fetch(client.getUrl('OnlineCinema/Strm/create')" Jellyfin.Plugin.OnlineCinema/Web/client.js; then
-            echo "STRM creation must use Jellyfin ApiClient authentication, not raw fetch"
-            exit 1
+          grep -Fq "apiPost('ChannelTest/select', data)" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          grep -Fq "createAndPlayChannel(nativeId, session" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          if grep -Fq "apiPost('Strm/create'" Jellyfin.Plugin.OnlineCinema/Web/client.js; then
+            echo "Client still creates STRM"; exit 1
           fi
-          grep -Fq "return await apiPost('Strm/create', data)" Jellyfin.Plugin.OnlineCinema/Web/client.js
-          grep -Fq "RegisterImmediately(metadata, fullPath" Jellyfin.Plugin.OnlineCinema/Services/StrmLibraryService.cs
-          grep -Fq "IsShortcut = true" Jellyfin.Plugin.OnlineCinema/Services/StrmLibraryService.cs
-          grep -Fq "stream/" Jellyfin.Plugin.OnlineCinema/Services/TorrServerService.cs
-
-          grep -Fq "createAndPlayStrm(nativeId, session" Jellyfin.Plugin.OnlineCinema/Web/client.js
-          if grep -Fq "TorrServer/select" Jellyfin.Plugin.OnlineCinema/Web/client.js; then
-            echo "Virtual playback still referenced by web client"
-            exit 1
-          fi
-          grep -Fq "Conflict(new" Jellyfin.Plugin.OnlineCinema/Api/TorrServerController.cs
-          grep -Fq "client.js?v=0.1.25" Jellyfin.Plugin.OnlineCinema/Web/ClientWebPatch.cs
+          grep -Fq "IChannel, IHasCacheKey, IRequiresMediaInfoCallback" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
+          grep -Fq "SupportsDirectPlay = false" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
+          grep -Fq "SupportsTranscoding = true" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
+          grep -Fq "GetMediaInfo(" Jellyfin.Plugin.OnlineCinema/Api/ChannelTestController.cs
       - name: Prepare plugin files
         run: |
           mkdir -p pkg
@@ -48,7 +40,7 @@ jobs:
           metadata = {
             "guid":"e1c3807b-47d2-4dd8-a40d-e5e57990a621",
             "name":"Online Cinema",
-            "version":"0.1.25.0",
+            "version":"0.1.26.0",
             "targetAbi":"12.2.0.0",
             "status":"Active",
             "autoUpdate":False
@@ -57,5 +49,5 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: onlinecinema-0.1.25-instant-native
+          name: onlinecinema-0.1.26-channel-test
           path: pkg/
