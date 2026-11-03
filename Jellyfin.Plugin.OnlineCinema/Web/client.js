@@ -262,7 +262,9 @@
             throw Error('Сервер не подтвердил создание STRM. Плеер не запускается.');
 
         let jellyfinId = String(read(created, 'itemId', '') || '');
-        const deadline = Date.now() + 90000;
+        if (jellyfinId && zone?.isConnected)
+            zone.textContent = 'STRM зарегистрирован в базе Jellyfin сразу, без сканирования.';
+        const deadline = Date.now() + 15000;
         while (!jellyfinId && Date.now() < deadline) {
             if (!stillActive()) throw Error('Карточка закрыта во время индексации STRM.');
             if (zone?.isConnected)
@@ -276,8 +278,9 @@
             if (match) jellyfinId = String(read(match, 'itemId', ''));
         }
         if (!jellyfinId)
-            throw Error('STRM файл создан, но Jellyfin не добавил его в медиатеку за 90 секунд. ' +
-                'Проверь мониторинг папки и запусти сканирование медиатеки вручную.');
+            throw Error('STRM создан, но быстрая регистрация в Jellyfin не сработала. ' +
+                'Проверь журнал Online Cinema: RegisterImmediately. ' +
+                'Плеер не запускается, чтобы не заставлять ждать долгого сканирования.');
         if (!stillActive()) throw Error('Карточка закрыта до запуска STRM.');
         if (zone?.isConnected)
             zone.textContent = 'Шаг 3/3: запускаем реальный STRM файл через Jellyfin...';
