@@ -39,7 +39,9 @@ public sealed class NativeCatalogController : ControllerBase
             exclude720p = c?.Exclude720p ?? false,
             excludeHdr = c?.ExcludeHdr ?? false,
             excludeDolbyVision = c?.ExcludeDolbyVision ?? false,
-            probeMediaStreams = c?.ProbeMediaStreams ?? true
+            probeMediaStreams = c?.ProbeMediaStreams ?? true,
+            playbackBackend = c?.PlaybackBackend ?? "strm",
+            keepStrmAfterPlayback = c?.KeepStrmAfterPlayback ?? true
         });
     }
 
