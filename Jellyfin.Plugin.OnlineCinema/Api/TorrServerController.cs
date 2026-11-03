@@ -1,10 +1,4 @@
 using Jellyfin.Plugin.OnlineCinema.Models;
-using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Model.Dto;
-using MediaBrowser.Model.Entities;
-using MediaBrowser.Model.Dlna;
-using MediaBrowser.Model.MediaInfo;
-using Microsoft.Extensions.Logging;
 using Jellyfin.Plugin.OnlineCinema.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,18 +11,10 @@ public sealed class TorrServerController : ControllerBase
 {
     private readonly TorrServerService _server;
     private readonly NativePlaybackRegistry _native;
-    private readonly IMediaEncoder _mediaEncoder;
-    private readonly ILogger<TorrServerController> _logger;
-    public TorrServerController(
-        TorrServerService server,
-        NativePlaybackRegistry native,
-        IMediaEncoder mediaEncoder,
-        ILogger<TorrServerController> logger)
+    public TorrServerController(TorrServerService server, NativePlaybackRegistry native)
     {
         _server = server;
         _native = native;
-        _mediaEncoder = mediaEncoder;
-        _logger = logger;
     }
 
     [Authorize]
@@ -83,77 +69,18 @@ public sealed class TorrServerController : ControllerBase
         { return StatusCode(502, new { error = e.Message }); }
     }
 
+    // Old Jellyfin Web clients may still have the virtual playback JavaScript
+    // cached. Refuse to create an unplayable virtual item: the client must use
+    // /OnlineCinema/Strm/create and then the actual library item ID.
     [Authorize]
     [HttpPost("select")]
-    public async Task<IActionResult> Select([FromBody] PlaySelection input, CancellationToken token)
-    {
-        try
+    public IActionResult Select([FromBody] PlaySelection input)
+        => Conflict(new
         {
-            var selected = await _server.SelectAsync(input.Session, input.FileIndex, token);
-            var title = Path.GetFileNameWithoutExtension(selected.FileName);
-            var configuration = Plugin.Instance!.Configuration;
-            var wantsDirect = string.Equals(configuration.StreamDeliveryMode,
-                "direct", StringComparison.OrdinalIgnoreCase);
-            // Never expose a configured TorrServer basic-auth credential in
-            // a native playback URL. Fall back to the authenticated proxy.
-            var direct = wantsDirect && string.IsNullOrWhiteSpace(configuration.TorrServerUsername);
-            var playbackPath = direct
-                ? _server.GetDirectPlaybackUrl(input.Session, input.FileIndex)
-                : selected.Url;
-            var id = _native.Register(title, playbackPath, selected.FileName, selected.Url);
-            var probed = false;
-            var streams = 0;
-            if (Plugin.Instance?.Configuration.ProbeMediaStreams == true)
-            {
-                try
-                {
-                    var url = direct
-                        ? playbackPath
-                        : Request.Scheme + "://" + Request.Host +
-                            Request.PathBase.ToString().TrimEnd('/') + "/" + selected.Url.TrimStart('/');
-                    var source = new MediaSourceInfo
-                    {
-                        Id = id.ToString("N"),
-                        Path = url,
-                        Container = Path.GetExtension(selected.FileName).TrimStart('.').ToLowerInvariant(),
-                        Protocol = MediaProtocol.Http,
-                        IsRemote = true,
-                        SupportsProbing = true
-                    };
-                    using var probeTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                    probeTimeout.CancelAfter(TimeSpan.FromSeconds(18));
-                    var info = await _mediaEncoder.GetMediaInfo(new MediaInfoRequest
-                    {
-                        MediaSource = source,
-                        MediaType = DlnaProfileType.Video,
-                        ExtractChapters = false
-                    }, probeTimeout.Token).ConfigureAwait(false);
-                    if (info?.MediaStreams is { Count: > 0 })
-                    {
-                        _native.EnrichMediaInfo(id, info);
-                        probed = true;
-                        streams = info.MediaStreams.Count;
-                    }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
-                {
-                    _logger.LogWarning(ex, "Online Cinema: FFprobe could not inspect selected video {File}", selected.FileName);
-                }
-            }
-            return Ok(new { itemId = id.ToString("N"), fileName = selected.FileName,
-                mode = direct ? "direct-torrserver" : "jellyfin-proxy",
-                modeNotice = wantsDirect && !direct
-                    ? "TorrServer защищён паролем — используем прокси Jellyfin."
-                    : direct
-                        ? "Плеер получает поток непосредственно от TorrServer."
-                        : "Плеер получает поток через Jellyfin.",
-                probed, streamCount = streams, transcoding = false });
-        }
-        catch (Exception e) when (e is ArgumentException or KeyNotFoundException or InvalidOperationException)
-        { return BadRequest(new { error = e.Message }); }
-        catch (Exception e) when (e is HttpRequestException or InvalidDataException or TimeoutException)
-        { return StatusCode(502, new { error = e.Message }); }
-    }
+            error = "Старый способ воспроизведения отключён. Обнови интерфейс " +
+                    "Online Cinema до версии 0.1.22 и выбери раздачу заново: " +
+                    "сначала создаётся STRM, затем запускается Jellyfin."
+        });
 
     // Browser video tags cannot set custom Jellyfin auth headers.
     // The stream URL uses an unguessable, expiring bearer ticket instead.
