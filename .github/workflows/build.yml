@@ -1,7 +1,7 @@
 name: Build Online Cinema
 on:
   push:
-    branches: [main, feature/mvp-catalog-streaming]
+    branches: [main, feature/mvp-catalog-streaming, test/channel-playback-0.1.26]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -32,6 +32,20 @@ jobs:
           grep -Fq "SupportsTranscoding = true" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
           grep -Fq "GetMediaInfo(" Jellyfin.Plugin.OnlineCinema/Api/ChannelTestController.cs
           grep -Fq "resolved.Count != 1" Jellyfin.Plugin.OnlineCinema/Api/ChannelTestController.cs
+          grep -Fq "Recent.Select(entry" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs
+          grep -Fq "playbackErrorDialog()" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          grep -Fq "failedTorrents" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          grep -Fq "searchReleases(true)" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          if grep -Eq 'OcStrm|OcKeepStrm|OcPlaybackBackend|OcStreamDelivery|OcCheckStrmPaths|OcAutoMode' Jellyfin.Plugin.OnlineCinema/Configuration/configPage.html; then
+            echo "Obsolete STRM or manual Play settings still exposed"; exit 1
+          fi
+          python3 - <<'PY'
+          import pathlib
+          html = pathlib.Path("Jellyfin.Plugin.OnlineCinema/Configuration/configPage.html").read_text()
+          script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+          pathlib.Path("/tmp/onlinecinema-config.js").write_text(script)
+          PY
+          node --check /tmp/onlinecinema-config.js
           if grep -Fq "IRequiresMediaInfoCallback" Jellyfin.Plugin.OnlineCinema/Channels/ChannelPlaybackTestChannel.cs; then
             echo "Duplicate dynamic media source still present"; exit 1
           fi
@@ -44,7 +58,7 @@ jobs:
           metadata = {
             "guid":"e1c3807b-47d2-4dd8-a40d-e5e57990a621",
             "name":"Online Cinema",
-            "version":"0.1.27.0",
+            "version":"0.1.28.0",
             "targetAbi":"12.2.0.0",
             "status":"Active",
             "autoUpdate":False
@@ -53,5 +67,5 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: onlinecinema-0.1.27-channel-source-fix
+          name: onlinecinema-0.1.28-channel-source-fix
           path: pkg/

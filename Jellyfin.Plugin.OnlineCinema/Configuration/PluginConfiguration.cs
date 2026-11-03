@@ -34,7 +34,7 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public string AutoPlayMode { get; set; } = "auto";
     public string AutoPlayQuality { get; set; } = "1080p";
     public string AutoPlaySort { get; set; } = "quality";
-    public int AutoPlayMaxAttempts { get; set; } = 3;
+    public int AutoPlayMaxAttempts { get; set; } = 6;
     public int AutoPlayMinSeeders { get; set; } = 0;
     public bool Exclude4K { get; set; } = false;
     public bool Exclude720p { get; set; } = false;

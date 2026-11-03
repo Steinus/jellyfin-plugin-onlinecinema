@@ -17,6 +17,11 @@ public sealed class ChannelPlaybackState
     private readonly object _sync = new();
     private ChannelPlaybackEntry? _active;
     private Guid? _lastItemId;
+    // A new playback must NOT delete a channel item which is still in use
+    // by FFmpeg or a client. Keep a bounded recent list rather than one slot.
+    private readonly List<ChannelPlaybackEntry> _recent = [];
+    private const int MaxRecent = 24;
+    private static readonly TimeSpan Retention = TimeSpan.FromHours(4);
     private long _version;
 
     public string Version => Interlocked.Read(ref _version).ToString(CultureInfo.InvariantCulture);
@@ -29,6 +34,11 @@ public sealed class ChannelPlaybackState
                 title, fileName, source, DateTime.UtcNow);
             _active = entry;
             _lastItemId = null;
+            _recent.Insert(0, entry);
+            var cutoff = DateTime.UtcNow - Retention;
+            _recent.RemoveAll(e => e.CreatedUtc < cutoff);
+            if (_recent.Count > MaxRecent)
+                _recent.RemoveRange(MaxRecent, _recent.Count - MaxRecent);
             Interlocked.Increment(ref _version);
             return entry;
         }
@@ -50,11 +60,16 @@ public sealed class ChannelPlaybackState
         get { lock (_sync) return _active; }
     }
 
+    public IReadOnlyList<ChannelPlaybackEntry> Recent
+    {
+        get { lock (_sync) return _recent.ToArray(); }
+    }
+
     public ChannelPlaybackEntry? Find(string externalId)
     {
         lock (_sync)
-            return string.Equals(_active?.ExternalId, externalId, StringComparison.Ordinal)
-                ? _active : null;
+            return _recent.FirstOrDefault(e =>
+                string.Equals(e.ExternalId, externalId, StringComparison.Ordinal));
     }
 }
 
@@ -108,24 +123,18 @@ public sealed class ChannelPlaybackTestChannel : IChannel, IHasCacheKey
     public Task<ChannelItemResult> GetChannelItems(
         InternalChannelItemQuery query, CancellationToken cancellationToken)
     {
-        var entry = _state.Current;
-        var items = entry is null
-            ? Array.Empty<ChannelItemInfo>()
-            : new[]
-            {
-                new ChannelItemInfo
-                {
-                    Id = entry.ExternalId,
-                    Name = entry.Title,
-                    DateModified = entry.CreatedUtc,
-                    Type = ChannelItemType.Media,
-                    MediaType = ChannelMediaType.Video,
-                    ContentType = ChannelMediaContentType.Movie,
-                    IsLiveStream = false,
-                    MediaSources = [entry.CreateMediaSource()],
-                    RunTimeTicks = entry.ProbedSource.RunTimeTicks
-                }
-            };
+        var items = _state.Recent.Select(entry => new ChannelItemInfo
+        {
+            Id = entry.ExternalId,
+            Name = entry.Title,
+            DateModified = entry.CreatedUtc,
+            Type = ChannelItemType.Media,
+            MediaType = ChannelMediaType.Video,
+            ContentType = ChannelMediaContentType.Movie,
+            IsLiveStream = false,
+            MediaSources = [entry.CreateMediaSource()],
+            RunTimeTicks = entry.ProbedSource.RunTimeTicks
+        }).ToArray();
         return Task.FromResult(new ChannelItemResult { Items = items, TotalRecordCount = items.Length });
     }
 
