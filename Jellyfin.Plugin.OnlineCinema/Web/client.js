@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0124) return;
-    window.__onlineCinemaV0124 = true;
+    if (window.__onlineCinemaV0125) return;
+    window.__onlineCinemaV0125 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
