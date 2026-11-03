@@ -897,6 +897,7 @@
             const statusBox = messageBox;
             let chosen = null;
             try {
+                await optionsReady;
                 const mode = opts.autoPlayMode || 'auto';
                 if (mode === 'manual') {
                     statusBox.textContent = 'Открываем ручной выбор раздач...';
@@ -987,6 +988,7 @@
         }
 
         async function openTorrentList(force = false) {
+            await optionsReady;
             host.hidden = false;
             torrentToggle.textContent = 'Скрыть торренты';
             let list = host.querySelector('.oc-releases');
@@ -1081,9 +1083,17 @@
             list.append(row);
         }
 
-        api('Native/options').then(settings => {
-            opts = { ...opts, ...settings };
+        const optionsReady = api('Native/options').then(settings => {
+            opts = {
+                ...opts,
+                autoPlayMode: String(read(settings, 'autoPlayMode', opts.autoPlayMode)),
+                autoPlayQuality: String(read(settings, 'autoPlayQuality', opts.autoPlayQuality)),
+                autoPlaySort: String(read(settings, 'autoPlaySort', opts.autoPlaySort)),
+                autoPlayMaxAttempts: Number(read(settings, 'autoPlayMaxAttempts', 3)),
+                autoPlayMinSeeders: Number(read(settings, 'autoPlayMinSeeders', 0))
+            };
             Object.assign(filterState, {
+                ...opts,
                 exclude4K: !!read(settings, 'exclude4K', false),
                 exclude720p: !!read(settings, 'exclude720p', false),
                 excludeHdr: !!read(settings, 'excludeHdr', false),
