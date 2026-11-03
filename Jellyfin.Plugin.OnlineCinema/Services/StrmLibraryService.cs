@@ -66,7 +66,18 @@ public sealed class StrmLibraryService : IDisposable
         var cleaned = new string(text.Select(ch =>
             invalid.Contains(ch) || char.IsControl(ch) ? ' ' : ch).ToArray());
         cleaned = Regex.Replace(cleaned, @"\s+", " ").Trim(' ', '.');
-        if (cleaned.Length > MaxFileNameLength) cleaned = cleaned[..MaxFileNameLength].Trim();
+        // ext4/Asustor file names are limited by UTF-8 bytes, not by .NET
+        // UTF-16 character count. Russian titles can use two bytes per char.
+        var utf8 = new StringBuilder();
+        var bytes = 0;
+        foreach (var rune in cleaned.EnumerateRunes())
+        {
+            if (utf8.Length >= MaxFileNameLength || bytes + rune.Utf8SequenceLength > 145)
+                break;
+            utf8.Append(rune.ToString());
+            bytes += rune.Utf8SequenceLength;
+        }
+        cleaned = utf8.ToString().Trim(' ', '.');
         return string.IsNullOrWhiteSpace(cleaned) ? "Без названия" : cleaned;
     }
 
@@ -281,6 +292,9 @@ public sealed class StrmLibraryService : IDisposable
             if (File.Exists(path))
             {
                 File.Delete(path);
+                // Remove only empty TMDB folders beneath the configured STRM
+                // library root. Never delete another file or a library root.
+                RemoveEmptyParents(path);
                 _monitor.ReportFileSystemChanged(path);
                 _logger.LogInformation("Online Cinema: temporary STRM removed on playback stop {File}", path);
             }
@@ -288,6 +302,27 @@ public sealed class StrmLibraryService : IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning(ex, "Online Cinema: could not remove temporary STRM {File}", path);
+        }
+    }
+
+    private static void RemoveEmptyParents(string filePath)
+    {
+        var folders = new[]
+        {
+            Plugin.Instance?.Configuration.StrmMoviesDirectory,
+            Plugin.Instance?.Configuration.StrmSeriesDirectory
+        }.Where(x => !string.IsNullOrWhiteSpace(x) && Path.IsPathFullyQualified(x))
+            .Select(x => Path.TrimEndingDirectorySeparator(Path.GetFullPath(x!)))
+            .ToArray();
+        var parent = Path.GetDirectoryName(filePath);
+        while (!string.IsNullOrEmpty(parent))
+        {
+            var root = folders.FirstOrDefault(x =>
+                parent.StartsWith(x + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            if (root is null || !Directory.Exists(parent) ||
+                Directory.EnumerateFileSystemEntries(parent).Any()) break;
+            Directory.Delete(parent);
+            parent = Path.GetDirectoryName(parent);
         }
     }
 
