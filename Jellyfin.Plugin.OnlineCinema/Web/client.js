@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0110) return;
-    window.__onlineCinemaV0110 = true;
+    if (window.__onlineCinemaV0112) return;
+    window.__onlineCinemaV0112 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -136,6 +136,83 @@
             contentType: 'application/json',
             dataType: 'json'
         });
+    }
+
+    function isVideoPageOpen() {
+        return /(?:^|\/)video(?:\?|$)/i.test(location.hash.replace(/^#\/?/, '')) ||
+            !!document.querySelector('#videoOsdPage:not(.hide), .videoOsdPage:not(.hide)');
+    }
+
+    async function launchJellyfinPlayer(itemId, zone) {
+        const client = window.ApiClient;
+        if (!client || !itemId) throw Error('Нет подключения к Jellyfin или ID видео.');
+
+        // Confirm the temporary item is actually visible through the normal
+        // Jellyfin API before asking its playback manager to start it.
+        let item;
+        try {
+            item = await client.getItem(client.getCurrentUserId(), itemId);
+        } catch (error) {
+            throw new Error('Jellyfin не видит созданный видеоэлемент: ' + apiError(error));
+        }
+        if (!item || String(read(item, 'mediaType', '')).toLowerCase() !== 'video') {
+            throw new Error('Jellyfin вернул неверную карточку видео. Проверьте плагин.');
+        }
+
+        zone.replaceChildren(dom('p', 'oc-message', 'Передаём видео штатному плееру Jellyfin...'));
+        let movedToHome = false;
+        let accepted = false;
+        const deadline = Date.now() + 10000;
+
+        const tryAction = host => {
+            // Jellyfin Web registers the itemAction click handler on
+            // .itemsContainer, NOT on document.body. Events must bubble
+            // through a connected, initialized library items container.
+            const action = dom('button', 'itemAction');
+            action.type = 'button';
+            action.hidden = true;
+            action.dataset.action = 'play';
+            action.dataset.id = itemId;
+            action.dataset.serverid = client.serverId();
+            action.dataset.type = 'Movie';
+            action.dataset.mediatype = 'Video';
+            action.dataset.isfolder = 'false';
+            host.append(action);
+            const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+            action.dispatchEvent(event);
+            action.remove();
+            return event.defaultPrevented;
+        };
+
+        // Try already-mounted containers first. If Online Cinema's custom
+        // route unmounted the home view, switch to Jellyfin's real home so
+        // React mounts a container with the native playback handler.
+        while (Date.now() < deadline && !accepted) {
+            const hosts = Array.from(document.querySelectorAll('.itemsContainer'))
+                .filter(node => node.isConnected && !node.closest('#oc-user-view'));
+            for (const host of hosts) {
+                if (tryAction(host)) { accepted = true; break; }
+            }
+            if (accepted) break;
+            if (!movedToHome) {
+                movedToHome = true;
+                location.hash = '#/home';
+            }
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+
+        if (!accepted) {
+            if (movedToHome) location.hash = '#/online-cinema';
+            throw new Error('Клиент Jellyfin не обработал команду воспроизведения. Не удалось найти активный обработчик медиатеки.');
+        }
+
+        // A handled click is not proof the stream started. Make a failure
+        // visible rather than leaving "Открываем..." on screen indefinitely.
+        await new Promise(resolve => setTimeout(resolve, 6000));
+        if (!isVideoPageOpen()) {
+            if (movedToHome) location.hash = '#/online-cinema';
+            throw new Error('Jellyfin принял команду, но не открыл видеоплеер. Проверьте запросы PlaybackInfo в журнале Jellyfin.');
+        }
     }
 
     function artworkUrl(value) {
@@ -543,23 +620,7 @@
                                                         const info = await apiPost('TorrServer/select', {session, fileIndex:index});
                                                         const itemId = read(info, 'itemId', '');
                                                         if (!itemId) throw Error('Jellyfin не вернул ID видео.');
-                                                        // Trigger Jellyfin Web's own itemAction=play handler.
-                                                        // This uses the native playbackManager and its full OSD,
-                                                        // not a custom video tag inside the catalog.
-                                                        const trigger = dom('button', 'itemAction');
-                                                        trigger.type = 'button';
-                                                        trigger.hidden = true;
-                                                        trigger.dataset.action = 'play';
-                                                        trigger.dataset.id = itemId;
-                                                        trigger.dataset.serverid = window.ApiClient.serverId();
-                                                        trigger.dataset.type = 'Movie';
-                                                        trigger.dataset.mediatype = 'Video';
-                                                        trigger.dataset.isfolder = 'false';
-                                                        document.body.append(trigger);
-                                                        zone.replaceChildren(dom('p','oc-message','Открываем штатный плеер Jellyfin...'));
-                                                        trigger.click();
-                                                        trigger.remove();
-
+                                                        await launchJellyfinPlayer(itemId, zone);
                                                     } catch (error) {showError(zone,apiError(error),null);}
                                                 }));
                                             });
