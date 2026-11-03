@@ -30,6 +30,38 @@
    </div>
    <h3>Потоковый сервер</h3>
    <div class="inputContainer"><label class="inputLabel" for="OcTorrServer">TorrServer URL</label><input is="emby-input" id="OcTorrServer" type="url" placeholder="http://192.168.1.10:8090"></div>
+   <h3>Воспроизведение через STRM — штатная медиатека Jellyfin</h3>
+   <div class="inputContainer">
+     <label class="inputLabel" for="OcPlaybackBackend">Способ запуска</label>
+     <select is="emby-select" id="OcPlaybackBackend">
+       <option value="strm">STRM в медиатеке Jellyfin (рекомендуется)</option>
+       <option value="virtual">Временный видеоэлемент (старый режим)</option>
+     </select>
+     <div class="fieldDescription">STRM позволяет Jellyfin использовать собственный механизм
+     определения дорожек, субтитров и транскодирования. Папки должны быть включены
+     в медиатеки Jellyfin и доступны для записи процессу сервера.</div>
+   </div>
+   <div class="inputContainer">
+     <label class="inputLabel" for="OcStrmMovies">Папка STRM фильмов (полный путь на сервере Jellyfin)</label>
+     <input is="emby-input" id="OcStrmMovies" type="text" placeholder="/media/OnlineCinema/Movies">
+     <div class="fieldDescription">Добавь эту папку в Jellyfin как медиатеку «Фильмы».
+     Внутри появятся папки «Название (Год) [tmdbid-N]» с файлами .strm.</div>
+   </div>
+   <div class="inputContainer">
+     <label class="inputLabel" for="OcStrmSeries">Папка STRM сериалов (полный путь на сервере Jellyfin)</label>
+     <input is="emby-input" id="OcStrmSeries" type="text" placeholder="/media/OnlineCinema/Series">
+     <div class="fieldDescription">Добавь эту папку в Jellyfin как медиатеку «Сериалы».
+     Для распознавания серии её имя должно содержать S01E01 или 1x01.</div>
+   </div>
+   <div class="checkboxContainer">
+     <label class="emby-checkbox-label">
+       <input is="emby-checkbox" id="OcKeepStrm" type="checkbox">
+       <span>Сохранять STRM после завершения просмотра</span>
+     </label>
+     <div class="fieldDescription">Если снять галочку, новые STRM удаляются после остановки
+     воспроизведения (с небольшой задержкой). Существующие файлы, созданные
+     вручную, никогда не удаляются.</div>
+   </div>
    <div class="inputContainer">
      <label class="inputLabel" for="OcStreamDelivery">Передача видео в плеер Jellyfin</label>
      <select is="emby-select" id="OcStreamDelivery">
@@ -86,7 +118,10 @@
    OcTmdb:'TmdbApiKey', OcLanguage:'Language',
    OcProvider:'TorrentSearchProvider', OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
    OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
-   OcTorrServer:'TorrServerUrl', OcStreamDelivery:'StreamDeliveryMode', OcUsername:'TorrServerUsername',
+   OcTorrServer:'TorrServerUrl', OcStreamDelivery:'StreamDeliveryMode',
+   OcPlaybackBackend:'PlaybackBackend', OcStrmMovies:'StrmMoviesDirectory', OcStrmSeries:'StrmSeriesDirectory',
+   OcKeepStrm:'KeepStrmAfterPlayback',
+   OcUsername:'TorrServerUsername',
    OcPassword:'TorrServerPassword',
    OcAutoMode:'AutoPlayMode', OcAutoQuality:'AutoPlayQuality', OcAutoSort:'AutoPlaySort',
    OcAutoAttempts:'AutoPlayMaxAttempts', OcMinSeeders:'AutoPlayMinSeeders',
