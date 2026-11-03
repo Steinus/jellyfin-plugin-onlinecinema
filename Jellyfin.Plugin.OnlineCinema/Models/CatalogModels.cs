@@ -24,10 +24,12 @@ public sealed record TorrentRelease(
     string MagnetUri, string DownloadUrl, string Source);
 
 
-public sealed record PreparedTorrent(string Session, string Title, IReadOnlyList<TorrentFile> Files, bool Ready);
+public sealed record PreparedTorrent(string Session, string Title, IReadOnlyList<TorrentFile> Files, bool Ready,
+    string Status = "", int ConnectedSeeders = 0, int TotalPeers = 0);
 
 public sealed record TorrentFile(int Id, string Path, long Length);
 
 public sealed record PlaySelection(string Session, int FileIndex);
 public sealed record PlayInfo(string Url, string FileName, string ContentType);
 public sealed record PrepareSelection(string Key);
+public sealed record TorrentSessionRequest(string Session);
