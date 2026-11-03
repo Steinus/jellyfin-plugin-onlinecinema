@@ -25,7 +25,7 @@ public sealed class TorrServerService
         public SemaphoreSlim RecoveryGate { get; } = new(1, 1);
     }
     private readonly ConcurrentDictionary<string, TorrentSession> _sessions = new();
-    private readonly ConcurrentDictionary<string, (string Hash, int Index, DateTimeOffset Expires)> _tickets = new();
+    private readonly ConcurrentDictionary<string, (string Hash, int Index, string ContentType, DateTimeOffset Expires)> _tickets = new();
 
     public TorrServerService(
         IHttpClientFactory clients, TorrentSelections selections, ILogger<TorrServerService> logger)
@@ -258,9 +258,21 @@ public sealed class TorrServerService
             throw new ArgumentException("Выбранный файл не является поддерживаемым видео.");
         var ticket = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         var record = GetSession(sessionId);
-        _tickets[ticket] = (record.Hash, fileIndex, DateTimeOffset.UtcNow.AddHours(2));
-        return new PlayInfo("OnlineCinema/TorrServer/stream/" + ticket, Path.GetFileName(file.Path),
-            ext is ".mp4" or ".m4v" ? "video/mp4" : ext == ".webm" ? "video/webm" : "application/octet-stream");
+        var contentType = ext switch
+        {
+            ".mp4" or ".m4v" => "video/mp4",
+            ".mkv" => "video/x-matroska",
+            ".avi" => "video/x-msvideo",
+            ".webm" => "video/webm",
+            ".ts" => "video/mp2t",
+            _ => "application/octet-stream"
+        };
+        _tickets[ticket] = (record.Hash, fileIndex, contentType, DateTimeOffset.UtcNow.AddHours(2));
+
+        // Android's player relies on the file extension and Content-Type when
+        // resolving a streamed media source. Keep the real extension in URL.
+        return new PlayInfo("OnlineCinema/TorrServer/stream/" + ticket + "/video" + ext,
+            Path.GetFileName(file.Path), contentType);
     }
 
     public async Task ProxyAsync(string ticket, HttpRequest incoming, HttpResponse outgoing, CancellationToken token)
@@ -269,11 +281,22 @@ public sealed class TorrServerService
         {
             outgoing.StatusCode = 404; return;
         }
+        // TorrServer exposes GET /play/{hash}/{id}, including RFC 7233 ranges.
+        // It does not expose a separate HEAD handler, so implement HEAD via
+        // a 0-0 byte-range GET without sending any response body downstream.
+        var isHead = HttpMethods.IsHead(incoming.Method);
         using var request = Request(HttpMethod.Get, "play/" + record.Hash + "/" + record.Index);
         if (incoming.Headers.TryGetValue("Range", out var range))
             request.Headers.TryAddWithoutValidation("Range", range.ToString());
+        else if (isHead)
+            request.Headers.TryAddWithoutValidation("Range", "bytes=0-0");
+
         using var response = await _clients.CreateClient("OnlineCinemaTorrServerStream")
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            _logger.LogWarning("Online Cinema: TorrServer /play returned HTTP {Status} for file #{FileIndex}",
+                (int)response.StatusCode, record.Index);
+
         outgoing.StatusCode = (int)response.StatusCode;
         foreach (var header in new[] { "Content-Range", "Accept-Ranges", "Content-Length" })
         {
@@ -282,8 +305,11 @@ public sealed class TorrServerService
             else if (response.Headers.TryGetValues(header, out values))
                 outgoing.Headers[header] = values.ToArray();
         }
-        outgoing.ContentType = response.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
-        await using var body = await response.Content.ReadAsStreamAsync(token);
-        await body.CopyToAsync(outgoing.Body, token);
+        outgoing.ContentType = record.ContentType;
+        outgoing.Headers.CacheControl = "private, no-store";
+        if (isHead) return;
+
+        await using var body = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+        await body.CopyToAsync(outgoing.Body, token).ConfigureAwait(false);
     }
 }
