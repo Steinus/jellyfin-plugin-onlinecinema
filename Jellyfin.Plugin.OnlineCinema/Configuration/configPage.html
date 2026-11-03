@@ -35,7 +35,7 @@
      <label class="inputLabel" for="OcPlaybackBackend">Способ запуска</label>
      <select is="emby-select" id="OcPlaybackBackend">
        <option value="strm">STRM в медиатеке Jellyfin (рекомендуется)</option>
-       <option value="virtual">Временный видеоэлемент (старый режим)</option>
+       
      </select>
      <div class="fieldDescription">STRM позволяет Jellyfin использовать собственный механизм
      определения дорожек, субтитров и транскодирования. Папки должны быть включены
@@ -155,7 +155,7 @@
      var el=page.querySelector('#'+id);
      if(el.type==='checkbox') el.checked=!!config[fields[id]];
      else if(el.type==='number') el.value=config[fields[id]]??0;
-     else el.value=config[fields[id]]??'';
+     else el.value=id==='OcPlaybackBackend' ? 'strm' : (config[fields[id]]??'');
     });
     page.querySelector('#OcProvider').value=config.TorrentSearchProvider==='prowlarr'?'prowlarr':'jackett';
     updateProvider();
@@ -168,7 +168,8 @@
    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
     Object.keys(fields).forEach(function(id) {
      var el=page.querySelector('#'+id);
-     config[fields[id]]=el.type==='checkbox'?el.checked
+     config[fields[id]]=id==='OcPlaybackBackend' ? 'strm'
+       :el.type==='checkbox'?el.checked
        :el.type==='number'?Number(el.value)||0:el.value.trim();
     });
     return ApiClient.updatePluginConfiguration(pluginId,config);
