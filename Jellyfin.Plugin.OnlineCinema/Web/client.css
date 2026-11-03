@@ -74,3 +74,21 @@
 @media(max-width:650px){#oc-user-view .oc-grid.oc-wall{grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:13px 8px}#oc-user-view .oc-alphabet{top:5px}#oc-user-view .oc-wall-layout{grid-template-columns:minmax(0,1fr) 18px}}
 
 #oc-user-view .oc-file-picker{margin:14px 0;padding:16px;border:1px solid #455568;border-radius:9px}#oc-user-view .oc-file-button{display:block;padding:10px 14px;margin:8px 0;max-width:100%;word-break:break-all;text-align:left;background:#263e55;color:#fff;border:1px solid #50749b;border-radius:7px;cursor:pointer}#oc-user-view .oc-video{width:100%;max-width:950px;min-height:250px;background:#000;border-radius:10px}
+
+/* Native Jellyfin details: action below Jellyfin's usual Play toolbar. */
+#itemDetailPage .oc-native-actions,.itemDetailPage .oc-native-actions{margin:10px max(20px,4vw) 24px;max-width:1040px;padding:0 0 10px}
+#itemDetailPage .oc-native-play,.itemDetailPage .oc-native-play,
+#itemDetailPage .oc-native-actions > .oc-primary-button,.itemDetailPage .oc-native-actions > .oc-primary-button{display:block;width:100%;max-width:670px;min-height:46px;border:0;border-radius:9px;background:#245eaf;color:white;font-size:16px;font-weight:650;padding:12px 20px;margin:10px 0;cursor:pointer;text-align:center}
+#itemDetailPage .oc-native-play,.itemDetailPage .oc-native-play{background:#d2d7df;color:#141923}
+#itemDetailPage .oc-native-results,.itemDetailPage .oc-native-results{max-width:850px;padding-top:5px}
+#itemDetailPage .oc-releases,.itemDetailPage .oc-releases{margin:12px 0}
+#itemDetailPage .oc-release-row,.itemDetailPage .oc-release-row{display:flex;flex-direction:column;gap:7px;border:1px solid #4a5666;border-radius:9px;margin:12px 0;padding:15px}
+#itemDetailPage .oc-release-row strong,.itemDetailPage .oc-release-row strong{font-size:14px}
+#itemDetailPage .oc-detail-meta,.itemDetailPage .oc-detail-meta{color:#b2c0d0}
+#itemDetailPage .oc-release-row .oc-primary-button,.itemDetailPage .oc-release-row .oc-primary-button{display:block;border:0;border-radius:8px;background:#236ed5;color:white;padding:11px;cursor:pointer}
+#itemDetailPage .oc-file-picker,.itemDetailPage .oc-file-picker{border:1px solid #44576c;border-radius:8px;padding:14px;margin-bottom:10px}
+#itemDetailPage .oc-file-button,.itemDetailPage .oc-file-button{display:block;width:100%;padding:12px;margin:8px 0;background:#263e55;color:white;border:1px solid #50749b;border-radius:6px;text-align:left;word-break:break-word;cursor:pointer}
+#itemDetailPage .oc-error,.itemDetailPage .oc-error{border:1px solid #7b4747;background:#402729;color:#ffe0dd;padding:13px;border-radius:8px;margin:8px 0}
+#itemDetailPage .oc-message,.itemDetailPage .oc-message{padding:12px 0;color:#b9c4d3}
+#itemDetailPage .oc-button,.itemDetailPage .oc-button{border:1px solid #45546c;border-radius:8px;padding:9px 13px;color:white;background:#283448;cursor:pointer}
+@media(max-width:750px){#itemDetailPage .oc-native-actions,.itemDetailPage .oc-native-actions{margin:8px 18px 24px;max-width:none}#itemDetailPage .oc-native-play,.itemDetailPage .oc-native-play,#itemDetailPage .oc-native-actions > .oc-primary-button,.itemDetailPage .oc-native-actions > .oc-primary-button{max-width:none}}
