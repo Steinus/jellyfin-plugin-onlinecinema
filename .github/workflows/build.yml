@@ -29,7 +29,7 @@ jobs:
           metadata = {
             "guid":"e1c3807b-47d2-4dd8-a40d-e5e57990a621",
             "name":"Online Cinema",
-            "version":"0.1.11.0",
+            "version":"0.1.12.0",
             "targetAbi":"12.2.0.0",
             "status":"Active",
             "autoUpdate":False
@@ -38,5 +38,5 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: onlinecinema-0.1.11-native-player
+          name: onlinecinema-0.1.12-native-launch
           path: pkg/
