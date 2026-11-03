@@ -47,12 +47,21 @@ public sealed class TorrServerController : ControllerBase
     }
 
     [Authorize]
+    [HttpPost("files")]
+    public Task<IActionResult> FilesPost([FromBody] TorrentSessionRequest request, CancellationToken token)
+        => FilesImpl(request.Session, token);
+
+    [Authorize]
     [HttpGet("files/{session}")]
-    public async Task<IActionResult> Files(string session, CancellationToken token)
+    public Task<IActionResult> Files(string session, CancellationToken token)
+        => FilesImpl(session, token);
+
+    private async Task<IActionResult> FilesImpl(string session, CancellationToken token)
     {
-        try { return Ok(await _server.PollAsync(session, token)); }
-        catch (KeyNotFoundException e) { return NotFound(new { error = e.Message }); }
-        catch (Exception e) when (e is HttpRequestException or InvalidDataException or TimeoutException) { return StatusCode(502, new { error = e.Message }); }
+        try { return Ok(await _server.PollAsync(session, token).ConfigureAwait(false)); }
+        catch (KeyNotFoundException e) { return Conflict(new { error = e.Message }); }
+        catch (Exception e) when (e is HttpRequestException or InvalidDataException or TimeoutException)
+        { return StatusCode(502, new { error = e.Message }); }
     }
 
     [Authorize]
@@ -104,9 +113,10 @@ public sealed class TorrServerController : ControllerBase
             return Ok(new { itemId = id.ToString("N"), fileName = selected.FileName,
                 mode = "jellyfin-native", probed, streamCount = streams, transcoding = false });
         }
-        catch (Exception e) when (e is ArgumentException or KeyNotFoundException)
+        catch (Exception e) when (e is ArgumentException or KeyNotFoundException or InvalidOperationException)
         { return BadRequest(new { error = e.Message }); }
-        catch (HttpRequestException e) { return StatusCode(502, new { error = e.Message }); }
+        catch (Exception e) when (e is HttpRequestException or InvalidDataException or TimeoutException)
+        { return StatusCode(502, new { error = e.Message }); }
     }
 
     // Browser video tags cannot set custom Jellyfin auth headers.
