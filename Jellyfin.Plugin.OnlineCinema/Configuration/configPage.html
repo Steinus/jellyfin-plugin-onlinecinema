@@ -36,6 +36,31 @@
    </div>
    <div class="inputContainer"><label class="inputLabel" for="OcUsername">TorrServer пользователь</label><input is="emby-input" id="OcUsername" type="text" autocomplete="off"></div>
    <div class="inputContainer"><label class="inputLabel" for="OcPassword">TorrServer пароль</label><input is="emby-input" id="OcPassword" type="password" autocomplete="off"></div>
+   <h3>Кнопка «Воспроизвести» — онлайн-каталог</h3>
+   <div class="inputContainer"><label class="inputLabel" for="OcAutoMode">Действие кнопки</label>
+     <select is="emby-select" id="OcAutoMode">
+       <option value="auto">Автопоиск → лучшая раздача → первый подходящий видеофайл → воспроизвести</option>
+       <option value="previous">Ранее выбранное видео, если есть; иначе автопоиск</option>
+       <option value="manual">Открыть список торрентов для ручного выбора</option>
+     </select>
+     <div class="fieldDescription">Автопоиск запускается только после нажатия «Воспроизвести», а не при открытии карточки.</div>
+   </div>
+   <div class="inputContainer"><label class="inputLabel" for="OcAutoQuality">Предпочтительное качество</label>
+     <select is="emby-select" id="OcAutoQuality"><option value="1080p">1080p</option><option value="2160p">4K (2160p)</option><option value="720p">720p</option><option value="any">Любое разрешение</option></select>
+   </div>
+   <div class="inputContainer"><label class="inputLabel" for="OcAutoSort">Приоритет раздач</label>
+     <select is="emby-select" id="OcAutoSort"><option value="quality">Качество → сиды → размер</option><option value="seeders">Сиды → качество</option><option value="size_asc">Размер по возрастанию</option><option value="size_desc">Размер по убыванию</option></select>
+   </div>
+   <div class="inputContainer"><label class="inputLabel" for="OcAutoAttempts">Количество раздач для попытки автозапуска (1–5)</label><input is="emby-input" type="number" id="OcAutoAttempts" min="1" max="5" step="1"></div>
+   <div class="inputContainer"><label class="inputLabel" for="OcMinSeeders">Минимальное количество сидов</label><input is="emby-input" type="number" id="OcMinSeeders" min="0" max="100000" step="1"></div>
+   <h3>Фильтры качества (список и автозапуск)</h3>
+   <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHide4K"><span>Скрывать 4K / 2160p / UHD</span></label></div>
+   <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHide720"><span>Скрывать 720p</span></label></div>
+   <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHideHdr"><span>Скрывать HDR / HDR10 / HDR10+</span></label></div>
+   <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcHideDv"><span>Скрывать Dolby Vision / DV</span></label></div>
+   <h3>Информация о потоках</h3>
+   <div class="checkboxContainer"><label class="emby-checkbox-label"><input is="emby-checkbox" type="checkbox" id="OcProbeStreams"><span>Определять аудио, видео и субтитры через FFprobe Jellyfin (экспериментально)</span></label></div>
+   <p class="fieldDescription">Определение дорожек не гарантирует транскодирование. Для него нужна отдельная совместимая интеграция потоков с обработчиками Jellyfin.</p>
    <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcPreferLocal" type="checkbox"><span>Предпочитать локальную библиотеку</span></label></div>
    <div class="checkboxContainer checkboxContainer-withDescription"><label class="emby-checkbox-label"><input is="emby-checkbox" id="OcGlobal" type="checkbox"><span>Включить в будущем поиск из общего поиска Jellyfin</span></label></div>
    <button is="emby-button" class="raised button-submit emby-button" type="submit"><span>Сохранить</span></button>
@@ -51,7 +76,12 @@
    OcProvider:'TorrentSearchProvider', OcJacRed:'JacRedUrl', OcJacRedKey:'JacRedApiKey',
    OcProwlarr:'ProwlarrUrl', OcProwlarrKey:'ProwlarrApiKey',
    OcTorrServer:'TorrServerUrl', OcUsername:'TorrServerUsername',
-   OcPassword:'TorrServerPassword', OcPreferLocal:'PreferLocalLibrary',
+   OcPassword:'TorrServerPassword',
+   OcAutoMode:'AutoPlayMode', OcAutoQuality:'AutoPlayQuality', OcAutoSort:'AutoPlaySort',
+   OcAutoAttempts:'AutoPlayMaxAttempts', OcMinSeeders:'AutoPlayMinSeeders',
+   OcHide4K:'Exclude4K', OcHide720:'Exclude720p', OcHideHdr:'ExcludeHdr', OcHideDv:'ExcludeDolbyVision',
+   OcProbeStreams:'ProbeMediaStreams',
+   OcPreferLocal:'PreferLocalLibrary',
    OcGlobal:'ShowGlobalSearchResults'
   };
   function updateProvider() {
@@ -78,7 +108,8 @@
     Object.keys(fields).forEach(function (id) {
      var el=page.querySelector('#'+id);
      if(el.type==='checkbox') el.checked=!!config[fields[id]];
-     else el.value=config[fields[id]]||'';
+     else if(el.type==='number') el.value=config[fields[id]]??0;
+     else el.value=config[fields[id]]??'';
     });
     page.querySelector('#OcProvider').value=config.TorrentSearchProvider==='prowlarr'?'prowlarr':'jackett';
     updateProvider();
@@ -91,7 +122,8 @@
    ApiClient.getPluginConfiguration(pluginId).then(function(config) {
     Object.keys(fields).forEach(function(id) {
      var el=page.querySelector('#'+id);
-     config[fields[id]]=el.type==='checkbox'?el.checked:el.value.trim();
+     config[fields[id]]=el.type==='checkbox'?el.checked
+       :el.type==='number'?Number(el.value)||0:el.value.trim();
     });
     return ApiClient.updatePluginConfiguration(pluginId,config);
    }).then(function () {
