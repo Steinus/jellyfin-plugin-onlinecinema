@@ -158,3 +158,5 @@
         max-width:none!important;
     }
 }
+
+#oc-user-view .oc-detail-fallback{padding:10px 14px;margin:10px 0;border:1px solid #525c68;border-radius:8px;color:#d9e5f6;background:#24303d;font-size:13px}
