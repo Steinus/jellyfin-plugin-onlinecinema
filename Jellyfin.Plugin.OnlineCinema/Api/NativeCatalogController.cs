@@ -33,6 +33,8 @@ public sealed class NativeCatalogController : ControllerBase
         try
         {
             var details = await _catalog.DetailsAsync(type, tmdbId, token).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(details.Item.LocalItemId))
+                return Ok(new { localItemId = details.Item.LocalItemId });
             var nativeId = _registry.RegisterCatalog(details);
             return Ok(new { itemId = nativeId.ToString("N"), title = details.Item.Title });
         }
