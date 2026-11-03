@@ -20,6 +20,16 @@ jobs:
         run: dotnet build Jellyfin.Plugin.OnlineCinema/Jellyfin.Plugin.OnlineCinema.csproj --no-restore -c Release
       - name: Validate web client JavaScript
         run: node --check Jellyfin.Plugin.OnlineCinema/Web/client.js
+      - name: Verify STRM-only client and server routes
+        run: |
+          grep -Fq "apiPost('Strm/create'" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          grep -Fq "createAndPlayStrm(nativeId, session" Jellyfin.Plugin.OnlineCinema/Web/client.js
+          if grep -Fq "TorrServer/select" Jellyfin.Plugin.OnlineCinema/Web/client.js; then
+            echo "Virtual playback still referenced by web client"
+            exit 1
+          fi
+          grep -Fq "Conflict(new" Jellyfin.Plugin.OnlineCinema/Api/TorrServerController.cs
+          grep -Fq "client.js?v=0.1.22" Jellyfin.Plugin.OnlineCinema/Web/ClientWebPatch.cs
       - name: Prepare plugin files
         run: |
           mkdir -p pkg
