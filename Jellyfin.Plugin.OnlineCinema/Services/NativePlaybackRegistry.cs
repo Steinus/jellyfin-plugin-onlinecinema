@@ -147,7 +147,10 @@ public sealed class NativePlaybackRegistry
             RunTimeTicks = probed?.RunTimeTicks,
             Bitrate = probed?.Bitrate,
             Size = probed?.Size,
-            IsRemote = true,
+            // The URL is hosted by Jellyfin itself. Marking it remote
+            // disables native direct playback in clients whose appHost does
+            // not allow RemoteVideo (including some Android integrations).
+            IsRemote = false,
             SupportsDirectPlay = true,
             SupportsDirectStream = false,
             SupportsTranscoding = false,
