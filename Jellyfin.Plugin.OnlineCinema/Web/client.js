@@ -987,13 +987,33 @@
         }
 
         async function selectAndPlay(session, file, statusBox) {
-            const result = await apiPost('TorrServer/select', {
-                session, fileIndex: Number(read(file, 'id', 0))
-            });
+            if (statusBox?.isConnected)
+                statusBox.textContent = 'Выбираем файл в TorrServer...';
+            let result;
+            try {
+                result = await apiPost('TorrServer/select', {
+                    session, fileIndex: Number(read(file, 'id', 0))
+                });
+            } catch (error) {
+                throw Error('Выбор файла TorrServer/select: ' + apiError(error));
+            }
             const itemId = String(read(result, 'itemId', ''));
-            if (!itemId) throw Error('Jellyfin не вернул ID видео.');
-            await apiPost('Native/item/' + encodeURIComponent(nativeId) + '/selected', { videoId: itemId });
-            await launchJellyfinPlayer(itemId, statusBox);
+            if (!itemId) throw Error('Jellyfin не вернул ID подготовленного видео.');
+            try {
+                // Only used to remember last selection; failure here is not
+                // a playback error and must not strand Android clients.
+                await apiPost('Native/item/' + encodeURIComponent(nativeId) + '/selected',
+                    { videoId: itemId });
+            } catch (error) {
+                console.warn('Online Cinema: could not save recent selection:', apiError(error));
+            }
+            if (statusBox?.isConnected)
+                statusBox.textContent = 'Открываем видеоплеер Jellyfin...';
+            try {
+                await launchJellyfinPlayer(itemId, statusBox);
+            } catch (error) {
+                throw Error('Запуск плеера Jellyfin: ' + apiError(error));
+            }
         }
 
         async function automaticPlayback() {
