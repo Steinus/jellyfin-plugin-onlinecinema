@@ -4,6 +4,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.OnlineCinema.Models;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging;
@@ -244,6 +247,146 @@ public sealed class StrmLibraryService : IDisposable
             throw new InvalidOperationException("Небезопасный путь создания STRM.");
     }
 
+
+    /// <summary>
+    /// The native Jellyfin player needs a database item ID, NOT a 90-second
+    /// library refresh. Create the actual Movie/Episode entry immediately
+    /// after writing its STRM. Jellyfin reads the TorrServer URL as the
+    /// shortcut path and can transcode it like a normal, indexed STRM.
+    /// </summary>
+    private Guid? RegisterImmediately(CatalogItem metadata, string filePath,
+        string videoFileName, string remoteUrl, string root)
+    {
+        var present = _library.FindByPath(filePath, false);
+        if (present is not null) return present.Id;
+
+        if (!IsInsideJellyfinLibrary(root))
+        {
+            _logger.LogWarning(
+                "Online Cinema: cannot instantly register STRM outside a Jellyfin library: {Root}", root);
+            return null;
+        }
+
+        // A user may have registered /share/Video2 but configured the same
+        // directory through /sharefolder/Video2. Do not create items with
+        // unrelated parents: fall back to the standard library scan.
+        var libraryFolder = _library.FindByPath(root, true) as Folder;
+        if (libraryFolder is null)
+        {
+            _logger.LogWarning(
+                "Online Cinema: Jellyfin library root was not resolved as a Folder: {Root}", root);
+            return null;
+        }
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var extension = Path.GetExtension(videoFileName).TrimStart('.').ToLowerInvariant();
+            var sharedName = MovieTitle(metadata);
+            if (metadata.Type == "movie")
+            {
+                var movie = new Movie
+                {
+                    Id = _library.GetNewItemId(filePath, typeof(Movie)),
+                    ParentId = libraryFolder.Id,
+                    Path = filePath,
+                    Name = metadata.Title,
+                    OriginalTitle = metadata.OriginalTitle,
+                    ProductionYear = int.TryParse(metadata.Year, out var year) ? year : null,
+                    IsShortcut = true,
+                    ShortcutPath = remoteUrl,
+                    VideoType = VideoType.VideoFile,
+                    Container = extension,
+                    DateCreated = now,
+                    DateModified = now,
+                    ProviderIds = new Dictionary<string, string>
+                    {
+                        ["Tmdb"] = metadata.Id.ToString(CultureInfo.InvariantCulture)
+                    }
+                };
+                _library.CreateItem(movie, libraryFolder);
+                _logger.LogInformation("Online Cinema: registered STRM Movie instantly {Id} {Path}",
+                    movie.Id, filePath);
+                return movie.Id;
+            }
+
+            var (seasonNumber, episodeNumber) = EpisodeNumbers(videoFileName);
+            var seriesPath = Path.GetDirectoryName(Path.GetDirectoryName(filePath)!)!;
+            var seasonPath = Path.GetDirectoryName(filePath)!;
+
+            var series = _library.FindByPath(seriesPath, true) as Series;
+            if (series is null)
+            {
+                series = new Series
+                {
+                    Id = _library.GetNewItemId(seriesPath, typeof(Series)),
+                    ParentId = libraryFolder.Id,
+                    Path = seriesPath,
+                    Name = metadata.Title,
+                    OriginalTitle = metadata.OriginalTitle,
+                    ProductionYear = int.TryParse(metadata.Year, out var sy) ? sy : null,
+                    DateCreated = now,
+                    DateModified = now,
+                    ProviderIds = new Dictionary<string, string>
+                    {
+                        ["Tmdb"] = metadata.Id.ToString(CultureInfo.InvariantCulture)
+                    }
+                };
+                _library.CreateItem(series, libraryFolder);
+            }
+
+            var season = _library.FindByPath(seasonPath, true) as Season;
+            if (season is null)
+            {
+                season = new Season
+                {
+                    Id = _library.GetNewItemId(seasonPath, typeof(Season)),
+                    ParentId = series.Id,
+                    Path = seasonPath,
+                    Name = "Season " + seasonNumber.ToString("00", CultureInfo.InvariantCulture),
+                    IndexNumber = seasonNumber,
+                    SeriesId = series.Id,
+                    SeriesName = metadata.Title,
+                    DateCreated = now,
+                    DateModified = now
+                };
+                _library.CreateItem(season, series);
+            }
+
+            var episode = new Episode
+            {
+                Id = _library.GetNewItemId(filePath, typeof(Episode)),
+                ParentId = season.Id,
+                Path = filePath,
+                Name = "Серия " + episodeNumber.ToString(CultureInfo.InvariantCulture),
+                IndexNumber = episodeNumber,
+                ParentIndexNumber = seasonNumber,
+                SeriesId = series.Id,
+                SeasonId = season.Id,
+                SeriesName = metadata.Title,
+                IsShortcut = true,
+                ShortcutPath = remoteUrl,
+                VideoType = VideoType.VideoFile,
+                Container = extension,
+                DateCreated = now,
+                DateModified = now
+            };
+            _library.CreateItem(episode, season);
+            _logger.LogInformation("Online Cinema: registered STRM Episode instantly {Id} {Path}",
+                episode.Id, filePath);
+            return episode.Id;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException
+            or UnauthorizedAccessException or ArgumentException)
+        {
+            // File creation has already succeeded; never throw away the STRM
+            // just because the instant indexing optimization is unavailable.
+            _logger.LogWarning(ex,
+                "Online Cinema: fast STRM registration unavailable, regular Jellyfin scan will follow");
+            return null;
+        }
+    }
+
     private StrmEntry Describe(string path)
     {
         var item = _library.FindByPath(path, false);
@@ -332,20 +475,26 @@ public sealed class StrmLibraryService : IDisposable
 
         // Notify Jellyfin's native library scanner rather than mocking Items
         // or PlaybackInfo. FindByPath will resolve a genuine library item.
+        // Register before notifying the file-system watcher. This avoids
+        // waiting for its debounce interval, metadata scan, and refresh queue.
+        var immediateId = RegisterImmediately(metadata, fullPath, file.FileName, url, root);
         try { _monitor.ReportFileSystemChanged(fullPath); }
         catch (Exception ex)
         {
-            // The file exists even if the library monitor is unavailable.
             _logger.LogWarning(ex, "Online Cinema: STRM created but the library monitor could not be notified");
         }
         var imported = Describe(fullPath);
+        var resolvedId = immediateId?.ToString("N") ?? imported.ItemId;
         var inLibrary = IsInsideJellyfinLibrary(root);
         return new { created = true, fileName = imported.Name,
-            itemId = imported.ItemId, waitingForScan = imported.ItemId is null,
+            itemId = resolvedId, waitingForScan = resolvedId is null,
+            registeredImmediately = immediateId is not null,
             inLibrary,
-            message = inLibrary ? "STRM создан. Ожидание индексации Jellyfin." :
-                "STRM создан, но папка не совпала с зарегистрированными путями медиатек. " +
-                "Если файл не появится в Jellyfin, добавь каталог в медиатеку или проверь путь через симлинк." };
+            message = immediateId is not null
+                ? "STRM зарегистрирован в Jellyfin сразу, без сканирования медиатеки."
+                : inLibrary
+                    ? "STRM создан. Быстрая регистрация не удалась, ожидание сканирования."
+                    : "STRM создан, но путь не совпадает с зарегистрированными медиатеками." };
     }
 
     private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs args)
