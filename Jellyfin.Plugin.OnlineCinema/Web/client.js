@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0112) return;
-    window.__onlineCinemaV0112 = true;
+    if (window.__onlineCinemaV0113) return;
+    window.__onlineCinemaV0113 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -230,7 +230,7 @@
     }
 
     function createPoster(media) {
-        const card = button('oc-card', '', () => showDetails(media));
+        const card = button('oc-card', '', () => openMediaDetails(media));
         card.setAttribute('aria-label', media.title + ' — открыть описание');
         const frame = dom('div', 'oc-poster-frame');
         if (media.posterUrl) {
@@ -737,6 +737,195 @@
         target.append(wrapper);
     }
 
+
+    const nativeDetailsCache = new Map();
+    let pendingNativeDetails = '';
+    let currentNativeId = '';
+
+    function isCurrentNative(nativeId) {
+        return currentNativeId === nativeId && location.hash.includes(nativeId);
+    }
+
+    function jellyfinDetails(id) {
+        close();
+        const serverId = window.ApiClient.serverId();
+        location.hash = '#/details?id=' + encodeURIComponent(id) +
+            '&serverId=' + encodeURIComponent(serverId);
+    }
+
+    async function openMediaDetails(media) {
+        if (media.localItemId) {
+            jellyfinDetails(media.localItemId);
+            return;
+        }
+        const shown = current();
+        const status = shown?.querySelector('#oc-user-content');
+        if (status) setWorking(status, 'Открываем карточку Jellyfin...');
+        try {
+            const registered = await apiPost('Native/open/' + encodeURIComponent(media.type) +
+                '/' + encodeURIComponent(media.id), {});
+            const localId = read(registered, 'localItemId', null);
+            const id = localId || read(registered, 'itemId', '');
+            if (!id) throw Error('Не удалось создать карточку Jellyfin');
+            jellyfinDetails(id);
+        } catch (error) {
+            if (status) showError(status, 'Карточка Jellyfin: ' + apiError(error),
+                () => openMediaDetails(media));
+        }
+    }
+
+    function getNativeIdFromHash() {
+        const h = location.hash.replace(/^#!/, '#/');
+        if (!h.startsWith('#/details?')) return '';
+        const id = new URLSearchParams(h.split('?')[1]).get('id') || '';
+        return /^[0-9a-f]{32}$|^[0-9a-f-]{36}$/i.test(id) ? id : '';
+    }
+
+    function addNativeDetailsControls(nativeId, info) {
+        const page = document.querySelector('.itemDetailPage');
+        const ribbon = page?.querySelector('.detailRibbon');
+        if (!ribbon || !isCurrentNative(nativeId)) return false;
+        const marker = page.querySelector('#oc-native-controls');
+        if (marker) return true;
+
+        const actions = dom('div', 'oc-native-actions');
+        actions.id = 'oc-native-controls';
+        actions.dataset.nativeId = nativeId;
+        const play = button('oc-native-play', '▶  Воспроизвести', async () => {
+            try {
+                const result = await api('Native/item/' + encodeURIComponent(nativeId));
+                const selected = read(result, 'selectedVideoId', null);
+                if (!selected) throw Error('Сначала нажми «Торренты» и выбери раздачу и видеофайл.');
+                await launchJellyfinPlayer(selected, actions);
+            } catch (error) {
+                let errorBox = actions.querySelector('.oc-native-play-error');
+                if (!errorBox) { errorBox=dom('div','oc-native-play-error');actions.append(errorBox); }
+                showError(errorBox, apiError(error), null);
+            }
+        });
+        actions.append(play);
+        const host = dom('div', 'oc-native-results');
+                        const findReleases = button('oc-primary-button', 'Торренты', async () => {
+                    const resultPanel = dom('div', 'oc-releases');
+                    host.querySelector('.oc-releases')?.remove();
+                    host.append(resultPanel);
+                    setWorking(resultPanel, 'Поиск раздач...');
+                    try {
+                        const route = 'JacRed/search?title=' + encodeURIComponent(info.title) +
+                            '&original=' + encodeURIComponent(info.originalTitle) +
+                            '&year=' + encodeURIComponent(info.year) +
+                            '&series=' + (info.type === 'tv');
+                        const result = await api(route);
+                        if (!isCurrentNative(nativeId)) return;
+                        resultPanel.replaceChildren();
+                        const releases = Array.isArray(result) ? result : [];
+                        if (!releases.length) {
+                            resultPanel.append(dom('p', 'oc-message', 'Источник поиска не нашёл подходящих раздач.'));
+                        }
+                        releases.forEach(raw => {
+                            const title = String(read(raw, 'title', 'Раздача'));
+                            const tracker = String(read(raw, 'indexer', ''));
+                            const size = Number(read(raw, 'size', 0));
+                            const seeds = Number(read(raw, 'seeders', 0));
+                            const row = dom('div', 'oc-release-row');
+                            row.append(dom('strong', '', title));
+                            row.append(dom('span', 'oc-detail-meta',
+                                tracker + ' · ' + (size > 0 ? (size / (1024 ** 3)).toFixed(2) + ' ГБ · ' : '') + 'Сиды: ' + seeds));
+                            if (read(raw, 'playable', false)) {
+                                row.append(button('oc-primary-button', 'Выбрать раздачу', async () => {
+                                    const zone = dom('div', 'oc-file-picker');
+                                    resultPanel.querySelector('.oc-file-picker')?.remove();
+                                    row.after(zone);
+                                    zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                    setWorking(zone, 'Подключение к TorrServer...');
+                                    try {
+                                        const initial = await apiPost('TorrServer/prepare', { key: read(raw,'key','') });
+                                        const session = read(initial, 'session', '');
+                                        if (!session) throw Error('TorrServer не вернул сеанс.');
+                                        const showFiles = async () => {
+                                            if (!isCurrentNative(nativeId)) return;
+                                            const current = await api('TorrServer/files/' + encodeURIComponent(session));
+                                            const files = read(current, 'files', []);
+                                            zone.replaceChildren();
+                                            if (!files.length) {
+                                                zone.append(dom('p','oc-message','Ожидание метаданных торрента...'));
+                                                zone.append(button('oc-button', 'Проверить ещё раз', showFiles));
+                                                return;
+                                            }
+                                            zone.append(dom('h3','','Выберите видеофайл'));
+                                            files.filter(file => /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(read(file,'path',''))).forEach(file => {
+                                                const label = read(file,'path','');
+                                                const index = Number(read(file,'id',0));
+                                                zone.append(button('oc-file-button', label, async () => {
+                                                    setWorking(zone, 'Подготавливаем воспроизведение...');
+                                                    try {
+                                                        const info = await apiPost('TorrServer/select', {session, fileIndex:index});
+                                                        const itemId = read(info, 'itemId', '');
+                                                        if (!itemId) throw Error('Jellyfin не вернул ID видео.');
+                                                        await apiPost('Native/item/' + encodeURIComponent(nativeId) + '/selected', { videoId: itemId });
+                                                        await launchJellyfinPlayer(itemId, zone);
+                                                    } catch (error) {showError(zone,apiError(error),null);}
+                                                }));
+                                            });
+                                        };
+                                        await showFiles();
+                                    } catch (error) {
+                                        showError(zone, 'TorrServer: ' + apiError(error), null);
+                                        zone.append(button('oc-button', 'Проверить соединение с TorrServer', async () => {
+                                            const diagnostic = dom('p', 'oc-message', 'Проверяем подключение...');
+                                            zone.append(diagnostic);
+                                            try {
+                                                const test = await api('TorrServer/diagnose');
+                                                const address = String(read(test, 'host', '')) + ':' + String(read(test, 'port', ''));
+                                                diagnostic.textContent = (read(test, 'connected', false) ? 'Соединение есть. ' : 'Нет соединения. ') +
+                                                    address + ' — ' + String(read(test, 'error', read(test, 'message', 'Нет ответа')));
+                                            } catch (e) {
+                                                diagnostic.textContent = 'Не удалось выполнить диагностику: ' + apiError(e);
+                                            }
+                                        }));
+                                    }
+                                }));
+                            } else {
+                                row.append(dom('span', 'oc-note', 'Нет magnet-ссылки — запуск пока недоступен'));
+                            }
+                            resultPanel.append(row);
+                        });
+                    } catch (error) {
+                        if (isCurrentNative(nativeId)) showError(resultPanel, 'Ошибка источника поиска: ' + apiError(error), null);
+                    }
+                });
+                actions.append(findReleases);
+        actions.append(host);
+        ribbon.after(actions);
+        return true;
+    }
+
+    async function decorateNativeDetails() {
+        const nativeId = getNativeIdFromHash();
+        if (!nativeId) {
+            currentNativeId = '';
+            return;
+        }
+        currentNativeId = nativeId;
+        let info = nativeDetailsCache.get(nativeId);
+        if (info === null) return;
+        if (!info) {
+            if (pendingNativeDetails === nativeId) return;
+            pendingNativeDetails = nativeId;
+            try {
+                info = await api('Native/item/' + encodeURIComponent(nativeId));
+                nativeDetailsCache.set(nativeId, info);
+            } catch (error) {
+                // Normal library items do not belong to Online Cinema.
+                nativeDetailsCache.set(nativeId, null);
+                return;
+            } finally {
+                if (pendingNativeDetails === nativeId) pendingNativeDetails = '';
+            }
+        }
+        addNativeDetailsControls(nativeId, info);
+    }
+
     function homeEntry() {
         const target = document.querySelector('#homeTab .sections');
         if (!target || target.querySelector('#oc-home-entry')) return;
@@ -753,6 +942,7 @@
             observerScheduled = false;
             menu();
             homeEntry();
+            decorateNativeDetails();
             const view = current();
             if (view && !view.hidden && !location.hash.startsWith('#/online-cinema')) close();
         });
@@ -763,6 +953,7 @@
         observer.observe(document.body, { childList: true, subtree: true });
         menu();
         homeEntry();
+        decorateNativeDetails();
         if (location.hash.startsWith('#/online-cinema')) open();
     }
 
@@ -776,5 +967,6 @@
             const view = current();
             if (!view || view.hidden) open();
         } else close();
+        decorateNativeDetails();
     });
 })();
