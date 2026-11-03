@@ -43,7 +43,9 @@ public sealed class TorrServerController : ControllerBase
         if (item is null)
             return NotFound(new { error = "Временный видеоэлемент не найден. Выберите раздачу повторно." });
 
-        var parts = item.StreamPath.Trim('/').Split('/');
+        // Direct-play items still retain a private Jellyfin proxy ticket for
+        // diagnostics. Never attempt to parse a full TorrServer URL as ticket.
+        var parts = item.ProxyPath.Trim('/').Split('/');
         if (parts.Length < 4 || parts[0] != "OnlineCinema" ||
             parts[1] != "TorrServer" || parts[2] != "stream" ||
             parts[3].Length != 64 || !parts[3].All(Uri.IsHexDigit))
@@ -89,15 +91,26 @@ public sealed class TorrServerController : ControllerBase
         {
             var selected = await _server.SelectAsync(input.Session, input.FileIndex, token);
             var title = Path.GetFileNameWithoutExtension(selected.FileName);
-            var id = _native.Register(title, selected.Url, selected.FileName);
+            var configuration = Plugin.Instance!.Configuration;
+            var wantsDirect = string.Equals(configuration.StreamDeliveryMode,
+                "direct", StringComparison.OrdinalIgnoreCase);
+            // Never expose a configured TorrServer basic-auth credential in
+            // a native playback URL. Fall back to the authenticated proxy.
+            var direct = wantsDirect && string.IsNullOrWhiteSpace(configuration.TorrServerUsername);
+            var playbackPath = direct
+                ? _server.GetDirectPlaybackUrl(input.Session, input.FileIndex)
+                : selected.Url;
+            var id = _native.Register(title, playbackPath, selected.FileName, selected.Url);
             var probed = false;
             var streams = 0;
             if (Plugin.Instance?.Configuration.ProbeMediaStreams == true)
             {
                 try
                 {
-                    var url = Request.Scheme + "://" + Request.Host +
-                        Request.PathBase.ToString().TrimEnd('/') + "/" + selected.Url.TrimStart('/');
+                    var url = direct
+                        ? playbackPath
+                        : Request.Scheme + "://" + Request.Host +
+                            Request.PathBase.ToString().TrimEnd('/') + "/" + selected.Url.TrimStart('/');
                     var source = new MediaSourceInfo
                     {
                         Id = id.ToString("N"),
@@ -128,7 +141,13 @@ public sealed class TorrServerController : ControllerBase
                 }
             }
             return Ok(new { itemId = id.ToString("N"), fileName = selected.FileName,
-                mode = "jellyfin-native", probed, streamCount = streams, transcoding = false });
+                mode = direct ? "direct-torrserver" : "jellyfin-proxy",
+                modeNotice = wantsDirect && !direct
+                    ? "TorrServer защищён паролем — используем прокси Jellyfin."
+                    : direct
+                        ? "Плеер получает поток непосредственно от TorrServer."
+                        : "Плеер получает поток через Jellyfin.",
+                probed, streamCount = streams, transcoding = false });
         }
         catch (Exception e) when (e is ArgumentException or KeyNotFoundException or InvalidOperationException)
         { return BadRequest(new { error = e.Message }); }
