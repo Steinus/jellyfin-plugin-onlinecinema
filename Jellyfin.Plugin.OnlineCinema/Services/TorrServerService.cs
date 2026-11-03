@@ -386,8 +386,19 @@ public sealed class TorrServerService
     public string GetDirectPlaybackUrl(string sessionId, int fileIndex)
     {
         var session = GetSession(sessionId);
-        return new Uri(ServerUrl(), "play/" + session.Hash + "/" +
-            fileIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)).AbsoluteUri;
+        var file = session.LastKnownFiles.FirstOrDefault(x => x.Id == fileIndex);
+        if (file is null)
+            throw new ArgumentException("TorrServer не вернул имя выбранного видеофайла.");
+
+        // Match the stream URL format of the user's working
+        // torrserver-strm-for-jellyfin plugin. The real filename (and its
+        // extension) is important for client media/container detection.
+        var name = Path.GetFileName(file.Path.Replace('\\', '/'));
+        var resource = "stream/" + Uri.EscapeDataString(name) +
+            "?link=" + Uri.EscapeDataString(session.Hash) +
+            "&index=" + fileIndex.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+            "&play";
+        return new Uri(ServerUrl(), resource).AbsoluteUri;
     }
 
     public async Task ProxyAsync(string ticket, HttpRequest incoming, HttpResponse outgoing, CancellationToken token)
