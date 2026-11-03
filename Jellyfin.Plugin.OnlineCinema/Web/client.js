@@ -664,7 +664,7 @@
                                                 return;
                                             }
                                             const videos = files.filter(file =>
-                                                /\\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(
+                                                /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(
                                                     String(read(file, 'path', ''))));
                                             const playFile = async (file) => {
                                                 setWorking(zone, 'Создаём STRM файл в Jellyfin...');
