@@ -359,6 +359,26 @@ public sealed class TorrServerService
     }
 
     /// <summary>
+    /// Store the selected torrent persistently so saved STRM links survive
+    /// TorrServer idle cleanup or restart.
+    /// </summary>
+    public async Task PersistAsync(string sessionId, CancellationToken token)
+    {
+        var session = GetSession(sessionId);
+        using var stored = await CommandAsync(new
+        {
+            action = "add",
+            link = session.MagnetUri,
+            title = session.Title,
+            save_to_db = true
+        }, token).ConfigureAwait(false);
+        var hash = stored.RootElement.Str("hash");
+        if (hash.Length != 40 || !hash.All(Uri.IsHexDigit))
+            throw new InvalidDataException("TorrServer не сохранил раздачу в базе.");
+        session.Hash = hash;
+    }
+
+    /// <summary>
     /// Direct network URL intended for Jellyfin clients with access to the
     /// configured TorrServer host. This does not embed credentials in a URL.
     /// Only call for a file that SelectAsync has already validated.
