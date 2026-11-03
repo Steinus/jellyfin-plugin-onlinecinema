@@ -929,18 +929,60 @@
             return searchPromise;
         }
 
-        async function prepare(raw) {
-            const started = await apiPost('TorrServer/prepare', { key: read(raw, 'key', '') });
-            const session = read(started, 'session', '');
-            if (!session) throw Error('TorrServer не вернул сеанс.');
-            let files = read(started, 'files', []);
-            for (let attempt = 0; attempt < 5 && !files.length; attempt++) {
-                await new Promise(resolve => setTimeout(resolve, attempt ? 1500 : 700));
-                const next = await api('TorrServer/files/' + encodeURIComponent(session));
-                files = read(next, 'files', []);
+        async function prepare(raw, statusBox = null, automatic = false) {
+            const describe = text => {
+                if (statusBox?.isConnected) statusBox.textContent = text;
+            };
+            const chosen = String(read(raw, 'title', 'Раздача'));
+            let started;
+            try {
+                describe('Добавляем раздачу в TorrServer: ' + chosen);
+                started = await apiPost('TorrServer/prepare', { key: read(raw, 'key', '') });
+            } catch (error) {
+                throw Error('TorrServer не принял magnet: ' + apiError(error));
             }
-            const videoFiles = files.filter(file => /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(String(read(file, 'path', ''))));
-            if (!videoFiles.length) throw Error('TorrServer не получил список видеофайлов.');
+            let session = String(read(started, 'session', ''));
+            if (!session) throw Error('TorrServer не вернул идентификатор сеанса.');
+
+            let files = read(started, 'files', []);
+            if (!Array.isArray(files)) files = [];
+            let lastStatus = String(read(started, 'status', ''));
+            let lastError = '';
+            const checks = automatic ? 18 : 30;
+            for (let attempt = 0; !files.length && attempt < checks; attempt++) {
+                if (!isCurrentNative(nativeId)) throw Error('Подготовка отменена: карточка закрыта.');
+                if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 1500));
+                describe('TorrServer загружает метаданные: ' + (attempt + 1) + '/' +
+                    checks + (lastStatus ? ' · ' + lastStatus : '') +
+                    (lastError ? ' · ' + lastError : ''));
+                try {
+                    // POST follows the same reliable API path as /prepare;
+                    // embedded Android Jellyfin clients may return 404 for GET /files.
+                    const response = await apiPost('TorrServer/files', { session });
+                    files = read(response, 'files', []);
+                    if (!Array.isArray(files)) files = [];
+                    lastStatus = String(read(response, 'status', lastStatus));
+                    lastError = '';
+                } catch (error) {
+                    const detail = apiError(error);
+                    lastError = detail;
+                    if (attempt === checks - 1) {
+                        throw Error('Не удалось получить файлы раздачи от Jellyfin/TorrServer: ' + detail);
+                    }
+                    // A transient 404/502 may occur if TorrServer recycled the
+                    // torrent. The server now restores the magnet automatically.
+                    // Retry instead of immediately failing the selected release.
+                }
+            }
+            const videoFiles = files.filter(file =>
+                /\\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(String(read(file, 'path', ''))));
+            if (!videoFiles.length) {
+                throw Error(files.length
+                    ? 'TorrServer вернул файлы, но среди них нет видео.'
+                    : 'TorrServer не получил метаданные за время ожидания. ' +
+                      (lastStatus ? 'Статус: ' + lastStatus + '. ' : '') +
+                      'Попробуй другую раздачу с активными пирами.');
+            }
             return { session, files: videoFiles };
         }
 
@@ -986,7 +1028,7 @@
                     statusBox.textContent = 'Проверяем раздачу ' + (i + 1) + '/' +
                         Math.min(maxAttempts, candidates.length) + ': ' + read(chosen, 'title', '');
                     try {
-                        const prepared = await prepare(chosen);
+                        const prepared = await prepare(chosen, statusBox, true);
                         const videos = [...prepared.files];
                         // For series, select the first episode by filename rather than a bonus video.
                         if (info.type === 'tv') {
@@ -1122,7 +1164,7 @@
                     zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     setWorking(zone, 'Подключение к TorrServer...');
                     try {
-                        const prepared = await prepare(raw);
+                        const prepared = await prepare(raw, zone, false);
                         if (!isCurrentNative(nativeId)) return;
                         zone.replaceChildren(dom('h3', '', 'Выбери видеофайл'));
                         for (const file of prepared.files) {
