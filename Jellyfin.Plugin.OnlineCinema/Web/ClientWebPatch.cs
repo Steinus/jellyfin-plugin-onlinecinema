@@ -1,4 +1,5 @@
 using System.Threading;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 
 namespace Jellyfin.Plugin.OnlineCinema.Web;
@@ -27,17 +28,23 @@ public static class ClientWebPatch
     public static string PatchIndexHtml(PatchRequestPayload payload)
     {
         var source = payload.Contents ?? string.Empty;
-        if (source.Contains("data-online-cinema-integration", StringComparison.Ordinal))
-            return source;
-
-        const string injection =
-            "<link data-online-cinema-integration rel=\"stylesheet\" href=\"../OnlineCinema/Web/client.css?v=0.1.21\" />" +
-            "<script defer src=\"../OnlineCinema/Web/client.js?v=0.1.21\"></script>";
-
         if (source.IndexOf("</head>", StringComparison.OrdinalIgnoreCase) < 0)
             return source;
 
+        // Old File Transformation results can already include a prior
+        // Online Cinema injection. Never return that cached snippet unchanged:
+        // it pins an obsolete client.js which uses virtual playback.
+        var clean = Regex.Replace(source,
+            @"<link\b(?=[^>]*(?:data-online-cinema-integration|OnlineCinema/Web/client\.css))[^>]*>",
+            string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        clean = Regex.Replace(clean,
+            @"<script\b(?=[^>]*OnlineCinema/Web/client\.js)[^>]*>\s*</script\s*>",
+            string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        const string injection =
+            "<link data-online-cinema-integration rel=\"stylesheet\" href=\"../OnlineCinema/Web/client.css?v=0.1.22\" />" +
+            "<script defer src=\"../OnlineCinema/Web/client.js?v=0.1.22\"></script>";
         WebIntegrationStatus.RecordPatch();
-        return source.Replace("</head>", injection + "</head>", StringComparison.OrdinalIgnoreCase);
+        return clean.Replace("</head>", injection + "</head>", StringComparison.OrdinalIgnoreCase);
     }
 }
