@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0119) return;
-    window.__onlineCinemaV0119 = true;
+    if (window.__onlineCinemaV0120) return;
+    window.__onlineCinemaV0120 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -1028,6 +1028,11 @@
             lastSelectedVideoId = itemId;
             sourceCheckButton.hidden = false;
             await checkSource(itemId);
+            const deliveryMessage = String(read(result, 'modeNotice', ''));
+            if (deliveryMessage) {
+                const notice = dom('div', 'oc-playback-mode', deliveryMessage);
+                diagnosticBox.prepend(notice);
+            }
             try {
                 // Only used to remember last selection; failure here is not
                 // a playback error and must not strand Android clients.
