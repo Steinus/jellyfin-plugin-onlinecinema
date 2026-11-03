@@ -216,6 +216,51 @@
             console.info('Online Cinema: playback dispatched; video UI may be owned by the native client.');
     }
 
+    // Single path for both native Jellyfin detail cards and the fallback
+    // Online Cinema catalog. No virtual item is ever prepared or played here.
+    async function createAndPlayStrm(nativeId, session, fileIndex, zone, stillActive = () => true) {
+        const id = Number(fileIndex);
+        if (!Number.isInteger(id) || id < 1)
+            throw Error('TorrServer не вернул корректный индекс видеофайла.');
+        if (!stillActive()) throw Error('Карточка была закрыта.');
+
+        if (zone?.isConnected)
+            zone.textContent = 'Шаг 1/3: создаём STRM в медиатеке Jellyfin...';
+        let created;
+        try {
+            created = await apiPost('Strm/create', { nativeId, session, fileIndex: id });
+        } catch (error) {
+            throw Error('STRM не создан: ' + apiError(error) +
+                '. Проверь путь и права записи в настройках Online Cinema.');
+        }
+        const name = String(read(created, 'fileName', ''));
+        if (!read(created, 'created', false) || !name)
+            throw Error('Сервер не подтвердил создание STRM. Плеер не запускается.');
+
+        let jellyfinId = String(read(created, 'itemId', '') || '');
+        const deadline = Date.now() + 90000;
+        while (!jellyfinId && Date.now() < deadline) {
+            if (!stillActive()) throw Error('Карточка закрыта во время индексации STRM.');
+            if (zone?.isConnected)
+                zone.textContent = 'Шаг 2/3: STRM создан (' + name +
+                    '). Jellyfin индексирует файл...';
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const status = await api('Strm/status/' + encodeURIComponent(nativeId));
+            const files = read(status, 'entries', []);
+            const match = Array.isArray(files) ? files.find(x =>
+                String(read(x, 'name', '')) === name && read(x, 'itemId', null)) : null;
+            if (match) jellyfinId = String(read(match, 'itemId', ''));
+        }
+        if (!jellyfinId)
+            throw Error('STRM файл создан, но Jellyfin не добавил его в медиатеку за 90 секунд. ' +
+                'Проверь мониторинг папки и запусти сканирование медиатеки вручную.');
+        if (!stillActive()) throw Error('Карточка закрыта до запуска STRM.');
+        if (zone?.isConnected)
+            zone.textContent = 'Шаг 3/3: запускаем реальный STRM файл через Jellyfin...';
+        await launchJellyfinPlayer(jellyfinId, zone);
+        return { jellyfinId, name };
+    }
+
     function artworkUrl(value) {
         if (!value) return '';
         if (value.startsWith('OnlineCinema/images/')) {
@@ -625,10 +670,18 @@
                                                 zone.append(button('oc-file-button', label, async () => {
                                                     setWorking(zone, 'Подготавливаем воспроизведение...');
                                                     try {
-                                                        const info = await apiPost('TorrServer/select', {session, fileIndex:index});
-                                                        const itemId = read(info, 'itemId', '');
-                                                        if (!itemId) throw Error('Jellyfin не вернул ID видео.');
-                                                        await launchJellyfinPlayer(itemId, zone);
+                                                        const registered = await apiPost('Native/open/' +
+                                                            encodeURIComponent(info.type) + '/' +
+                                                            encodeURIComponent(info.id), {});
+                                                        const nativeId = read(registered, 'itemId', '');
+                                                        const localId = read(registered, 'localItemId', '');
+                                                        if (localId) {
+                                                            await launchJellyfinPlayer(localId, zone);
+                                                            return;
+                                                        }
+                                                        if (!nativeId) throw Error('Не удалось зарегистрировать STRM-карточку Jellyfin.');
+                                                        await createAndPlayStrm(nativeId, session, index, zone,
+                                                            () => validGeneration(generation));
                                                     } catch (error) {showError(zone,apiError(error),null);}
                                                 }));
                                             });
@@ -1076,33 +1129,11 @@
         }
 
         async function selectAndPlay(session, file, statusBox) {
-            // STRM is the only supported playback path in this release. Do not
-            // silently fall back to virtual videos if options cannot be loaded.
-            // This also prevents old client settings from re-enabling Source error.
-            const fileIndex = Number(read(file, 'id', 0));
-            if (!Number.isInteger(fileIndex) || fileIndex < 1)
-                throw Error('TorrServer не вернул корректный индекс видеофайла.');
-            if (statusBox?.isConnected)
-                statusBox.textContent = 'Шаг 1/3: создаём STRM на сервере Jellyfin...';
-            let created;
-            try {
-                created = await apiPost('Strm/create', { nativeId, session, fileIndex });
-            } catch (error) {
-                throw Error('STRM не создан: ' + apiError(error) +
-                    '. Проверь путь и права записи в настройках Online Cinema.');
-            }
-            const fileName = String(read(created, 'fileName', ''));
-            if (!read(created, 'created', false) || !fileName)
-                throw Error('Сервер не подтвердил создание STRM. Плеер не запускается.');
-            if (statusBox?.isConnected)
-                statusBox.textContent = 'Шаг 2/3: STRM создан — ' + fileName +
-                    '. Ждём появления в медиатеке...';
-            let realId = read(created, 'itemId', null);
-            if (!realId) realId = await waitForStrmItem(statusBox, fileName);
-            await refreshStrmStatus();
-            if (statusBox?.isConnected)
-                statusBox.textContent = 'Шаг 3/3: воспроизводим реальный STRM через Jellyfin...';
-            await launchJellyfinPlayer(realId, statusBox);
+            await createAndPlayStrm(nativeId, session,
+                Number(read(file, 'id', 0)), statusBox,
+                () => isCurrentNative(nativeId));
+            try { await refreshStrmStatus(); }
+            catch (error) { console.warn('Online Cinema: STRM button refresh failed', apiError(error)); }
         }
 
         async function automaticPlayback() {
