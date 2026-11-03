@@ -1196,6 +1196,49 @@
         target.prepend(shortcut);
     }
 
+    // Android uses the native Play action in the legacy Jellyfin detail
+    // template. Capture it *before* the Jellyfin handler so an unprepared
+    // catalog item cannot launch an empty, silent player. The restriction to
+    // registered online IDs avoids affecting normal library playback.
+    function interceptNativeOnlinePlay(event) {
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') return;
+        const trigger = target.closest(
+            '.itemDetailPage .mainDetailButtons [data-action="play"],' +
+            '.itemDetailPage .mainDetailButtons [data-action="resume"],' +
+            '#itemDetailPage .mainDetailButtons [data-action="play"],' +
+            '#itemDetailPage .mainDetailButtons [data-action="resume"]'
+        );
+        if (!trigger || trigger.closest('#oc-native-controls')) return;
+        const id = getNativeIdFromHash();
+        if (!id || !knownOnlineNativeIds.has(normalizeGuid(id))) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const start = async () => {
+            await decorateNativeDetails();
+            let button = document.querySelector('#oc-native-controls .oc-native-play');
+            if (!button) {
+                // In slower embedded WebViews a native page may be mid-render.
+                await new Promise(resolve => setTimeout(resolve, 300));
+                await decorateNativeDetails();
+                button = document.querySelector('#oc-native-controls .oc-native-play');
+            }
+            if (button) {
+                button.click();
+            } else {
+                const page = document.querySelector('.itemDetailPage, #itemDetailPage');
+                const warning = dom('p', 'oc-error',
+                    'Не удалось подключить управление Онлайн-кинотеатра к мобильной карточке. Вернись в каталог и открой фильм повторно.');
+                page?.querySelector('.mainDetailButtons')?.after(warning);
+            }
+        };
+        start().catch(error => {
+            const page = document.querySelector('.itemDetailPage, #itemDetailPage');
+            const status = dom('p', 'oc-error', 'Ошибка онлайн-воспроизведения: ' + apiError(error));
+            page?.querySelector('.mainDetailButtons')?.after(status);
+        });
+    }
+
     let observerScheduled = false;
     const observer = new MutationObserver(() => {
         if (observerScheduled) return;
@@ -1212,6 +1255,7 @@
 
     function init() {
         if (!document.body) return;
+        document.addEventListener('click', interceptNativeOnlinePlay, true);
         observer.observe(document.body, { childList: true, subtree: true });
         menu();
         homeEntry();
