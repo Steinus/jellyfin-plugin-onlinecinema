@@ -101,6 +101,29 @@ public sealed class StrmLibraryService : IDisposable
         return full;
     }
 
+    public bool IsManagedLibraryItem(BaseItem? item)
+    {
+        var path = item?.Path;
+        if (string.IsNullOrWhiteSpace(path) ||
+            !Regex.IsMatch(path, @"\[tmdbid-\d+\]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+            return false;
+
+        foreach (var configured in new[]
+        {
+            Plugin.Instance?.Configuration.StrmMoviesDirectory,
+            Plugin.Instance?.Configuration.StrmSeriesDirectory
+        })
+        {
+            if (string.IsNullOrWhiteSpace(configured) || !Path.IsPathFullyQualified(configured))
+                continue;
+            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured));
+            var candidate = Path.GetFullPath(path);
+            if (candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
     private string Folder(CatalogItem item)
     {
         var root = ValidatedRoot(item.Type == "tv");
@@ -216,7 +239,7 @@ public sealed class StrmLibraryService : IDisposable
             }
             else
             {
-                await File.WriteAllTextAsync(fullPath, url + "\n", Encoding.UTF8, token).ConfigureAwait(false);
+                await File.WriteAllTextAsync(fullPath, url + "\n", new UTF8Encoding(false), token).ConfigureAwait(false);
                 if (Plugin.Instance?.Configuration.KeepStrmAfterPlayback == false)
                     _temporaryPaths.TryAdd(fullPath, 0);
                 _logger.LogInformation("Online Cinema: STRM created {File}", fullPath);
