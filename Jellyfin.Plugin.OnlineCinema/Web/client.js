@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0114) return;
-    window.__onlineCinemaV0114 = true;
+    if (window.__onlineCinemaV0115) return;
+    window.__onlineCinemaV0115 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -761,15 +761,36 @@
         const status = shown?.querySelector('#oc-user-content');
         if (status) setWorking(status, 'Открываем карточку Jellyfin...');
         try {
-            const registered = await apiPost('Native/open/' + encodeURIComponent(media.type) +
-                '/' + encodeURIComponent(media.id), {});
+            const key = encodeURIComponent(media.type) + '/' + encodeURIComponent(media.id);
+            // The standard catalog API is GET-based and works in Jellyfin's
+            // Android WebView too. Keep the former POST path for compatibility.
+            const params = new URLSearchParams({
+                title: media.title || '',
+                original: media.originalTitle || '',
+                year: media.year || '',
+                poster: media.posterUrl || '',
+                backdrop: media.backdropUrl || ''
+            });
+            let registered;
+            try {
+                registered = await api('open/' + key + '?' + params.toString());
+            } catch (getError) {
+                try {
+                    registered = await apiPost('Native/open/' + key, {});
+                } catch (postError) {
+                    throw new Error('GET: ' + apiError(getError) + '; POST: ' + apiError(postError));
+                }
+            }
             const localId = read(registered, 'localItemId', null);
             const id = localId || read(registered, 'itemId', '');
-            if (!id) throw Error('Не удалось создать карточку Jellyfin');
+            if (!id) throw Error('Не удалось зарегистрировать карточку Jellyfin');
             jellyfinDetails(id);
         } catch (error) {
-            if (status) showError(status, 'Карточка Jellyfin: ' + apiError(error),
-                () => openMediaDetails(media));
+            if (status) {
+                showError(status, 'Не удалось открыть штатную карточку: ' + apiError(error),
+                    () => openMediaDetails(media));
+                status.append(button('oc-button', 'Открыть упрощённую карточку', () => showDetails(media)));
+            }
         }
     }
 
