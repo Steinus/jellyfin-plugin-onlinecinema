@@ -160,3 +160,17 @@
 }
 
 #oc-user-view .oc-detail-fallback{padding:10px 14px;margin:10px 0;border:1px solid #525c68;border-radius:8px;color:#d9e5f6;background:#24303d;font-size:13px}
+
+/* Diagnostics are intentionally shown beneath the native actions, not as an overlay. */
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-playback-check:not(:empty){
+    box-sizing:border-box;width:100%;max-width:850px;margin:8px auto 16px;
+    padding:12px 15px;line-height:1.5;border:1px solid #354d63;border-radius:9px;
+    color:#c8def0;background:#172434;overflow-wrap:anywhere;
+}
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-playback-check.oc-source-bad{
+    color:#ffd4d4;background:#452b2e;border-color:#91646c;
+}
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-button{
+    align-self:center;max-width:670px;width:100%;margin:8px auto;padding:11px 16px;
+}
+.itemDetailPage.oc-native-detail #oc-native-controls > .oc-button[hidden]{display:none!important}
