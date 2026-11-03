@@ -138,6 +138,39 @@
         });
     }
 
+    // ApiClient.ajax normalizes a 400 response to "Bad Request" and on
+    // Android discards the JSON payload. Use an authenticated fetch for STRM
+    // creation so the server's exact validation error is shown to the user.
+    async function postStrmCreate(data) {
+        const client = window.ApiClient;
+        const token = typeof client?.accessToken === 'function' ? client.accessToken() : '';
+        if (!token || typeof fetch !== 'function')
+            return apiPost('Strm/create', data);
+
+        const response = await fetch(client.getUrl('OnlineCinema/Strm/create'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Emby-Token': token
+            },
+            credentials: 'same-origin',
+            cache: 'no-store',
+            body: JSON.stringify(data)
+        });
+        const raw = await response.text();
+        let parsed = {};
+        try { parsed = raw ? JSON.parse(raw) : {}; }
+        catch (_) { /* non-JSON errors (e.g. an upstream reverse proxy) */ }
+        if (!response.ok) {
+            const detail = String(read(parsed, 'error', null) ||
+                read(parsed, 'detail', null) ||
+                (raw && !raw.trim().startsWith('<') ? raw.slice(0, 300) : '') ||
+                response.statusText || 'Ошибка сервера');
+            throw Error('HTTP ' + response.status + ': ' + detail);
+        }
+        return parsed;
+    }
+
     function isVideoPageOpen() {
         return /(?:^|\/)video(?:\?|$)/i.test(location.hash.replace(/^#\/?/, '')) ||
             !!document.querySelector('#videoOsdPage:not(.hide), .videoOsdPage:not(.hide)');
@@ -228,10 +261,19 @@
             zone.textContent = 'Шаг 1/3: создаём STRM в медиатеке Jellyfin...';
         let created;
         try {
-            created = await apiPost('Strm/create', { nativeId, session, fileIndex: id });
+            created = await postStrmCreate({ nativeId, session, fileIndex: id });
         } catch (error) {
-            throw Error('STRM не создан: ' + apiError(error) +
-                '. Проверь путь и права записи в настройках Online Cinema.');
+            let detail = apiError(error);
+            try {
+                const diagnostic = await api('Strm/diagnose');
+                const root = read(diagnostic, String(read(data, 'type', 'movie')) === 'tv'
+                    ? 'series' : 'movies', null);
+                if (root && (!read(root, 'configured', false) || !read(root, 'writable', false)))
+                    detail += ' · Проверка папки: ' + String(read(root, 'message', 'нет данных'));
+                if (read(diagnostic, 'torrServerAuthConfigured', false))
+                    detail += ' · В TorrServer настроен пользователь; прямая STRM-ссылка требует доступа без Basic Auth.';
+            } catch (_) { /* server response itself remains the main error */ }
+            throw Error('STRM не создан: ' + detail);
         }
         const name = String(read(created, 'fileName', ''));
         if (!read(created, 'created', false) || !name)
