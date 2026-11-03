@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0118) return;
-    window.__onlineCinemaV0118 = true;
+    if (window.__onlineCinemaV0119) return;
+    window.__onlineCinemaV0119 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -905,6 +905,8 @@
         actions.id = 'oc-native-controls';
         actions.dataset.nativeId = nativeId;
         const messageBox = dom('div', 'oc-native-play-status');
+        const diagnosticBox = dom('div', 'oc-playback-check');
+        let lastSelectedVideoId = String(read(info, 'selectedVideoId', '') || '');
         const host = dom('div', 'oc-native-results');
         host.hidden = true;
         let loaded = null;
@@ -986,6 +988,30 @@
             return { session, files: videoFiles };
         }
 
+        async function checkSource(itemId) {
+            diagnosticBox.textContent = 'Проверяем реальные данные TorrServer...';
+            try {
+                const state = await api('TorrServer/check/' + encodeURIComponent(itemId));
+                const status = Number(read(state, 'status', 0));
+                const bytes = Number(read(state, 'receivedBytes', 0));
+                const ok = !!read(state, 'ok', false);
+                const detail = String(read(state, 'message', 'Нет описания'));
+                diagnosticBox.textContent = 'Проверка источника: HTTP ' + status +
+                    ', прочитано ' + bytes + ' байт. ' + detail;
+                diagnosticBox.classList.toggle('oc-source-bad', !ok);
+                if (!ok) throw Error('Видеопоток TorrServer не готов: ' + detail +
+                    ' (HTTP ' + status + '). Выбери другую раздачу или повтори попытку.');
+                return true;
+            } catch (error) {
+                // Keep the original error visible. A failed diagnostic query
+                // alone must not prevent native playback.
+                if (String(error.message || '').startsWith('Видеопоток TorrServer не готов:'))
+                    throw error;
+                diagnosticBox.textContent = 'Не удалось получить диагностику: ' + apiError(error);
+                return false;
+            }
+        }
+
         async function selectAndPlay(session, file, statusBox) {
             if (statusBox?.isConnected)
                 statusBox.textContent = 'Выбираем файл в TorrServer...';
@@ -999,6 +1025,9 @@
             }
             const itemId = String(read(result, 'itemId', ''));
             if (!itemId) throw Error('Jellyfin не вернул ID подготовленного видео.');
+            lastSelectedVideoId = itemId;
+            sourceCheckButton.hidden = false;
+            await checkSource(itemId);
             try {
                 // Only used to remember last selection; failure here is not
                 // a playback error and must not strand Android clients.
@@ -1079,7 +1108,16 @@
             }
             openTorrentList();
         });
-        actions.append(torrentToggle, messageBox, host);
+        const sourceCheckButton = button('oc-button', 'Проверить видеопоток TorrServer', async () => {
+            if (!lastSelectedVideoId) {
+                diagnosticBox.textContent = 'Сначала выбери раздачу и видеофайл.';
+                return;
+            }
+            try { await checkSource(lastSelectedVideoId); }
+            catch (error) { diagnosticBox.textContent = apiError(error); }
+        });
+        sourceCheckButton.hidden = !lastSelectedVideoId;
+        actions.append(torrentToggle, messageBox, sourceCheckButton, diagnosticBox, host);
         ribbon.after(actions);
 
         function selectField(label, values, selected, onChange) {
