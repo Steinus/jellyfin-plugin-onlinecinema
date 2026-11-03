@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.OnlineCinema.Filters;
