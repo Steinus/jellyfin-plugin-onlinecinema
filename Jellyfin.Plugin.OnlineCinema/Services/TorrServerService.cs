@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Jellyfin.Plugin.OnlineCinema.Models;
 
 namespace Jellyfin.Plugin.OnlineCinema.Services;
@@ -12,13 +13,26 @@ public sealed class TorrServerService
 {
     private readonly IHttpClientFactory _clients;
     private readonly TorrentSelections _selections;
-    private readonly ConcurrentDictionary<string, (string Hash, DateTimeOffset Expires)> _sessions = new();
+    private readonly ILogger<TorrServerService> _logger;
+    private sealed class TorrentSession
+    {
+        public required string Hash { get; set; }
+        public required string MagnetUri { get; init; }
+        public required string Title { get; init; }
+        public DateTimeOffset Expires { get; init; } = DateTimeOffset.UtcNow.AddHours(2);
+        public TorrentFile[] LastKnownFiles { get; set; } = [];
+        public DateTimeOffset LastRecovery { get; set; } = DateTimeOffset.MinValue;
+        public SemaphoreSlim RecoveryGate { get; } = new(1, 1);
+    }
+    private readonly ConcurrentDictionary<string, TorrentSession> _sessions = new();
     private readonly ConcurrentDictionary<string, (string Hash, int Index, DateTimeOffset Expires)> _tickets = new();
 
-    public TorrServerService(IHttpClientFactory clients, TorrentSelections selections)
+    public TorrServerService(
+        IHttpClientFactory clients, TorrentSelections selections, ILogger<TorrServerService> logger)
     {
         _clients = clients;
         _selections = selections;
+        _logger = logger;
     }
 
     private static Uri ServerUrl()
@@ -125,11 +139,22 @@ public sealed class TorrServerService
         }
     }
 
-    private static PreparedTorrent Parse(JsonElement state, string session)
+    private static TorrentFile[] ParseFiles(JsonElement state)
+        => state.Prop("file_stats").Elements()
+            .Select(x => new TorrentFile(x.Int("id"), x.Str("path"), x.Long("length")))
+            .Where(x => x.Id > 0 && !string.IsNullOrWhiteSpace(x.Path)).ToArray();
+
+    private static PreparedTorrent BuildState(string sessionId, TorrentSession entry, JsonElement state)
     {
-        var files = state.Prop("file_stats").Elements()
-            .Select(x => new TorrentFile(x.Int("id"), x.Str("path"), x.Long("length"))).ToArray();
-        return new PreparedTorrent(session, state.Str("title"), files, files.Length > 0);
+        var fresh = ParseFiles(state);
+        if (fresh.Length > 0)
+            entry.LastKnownFiles = fresh;
+
+        // TorrServer answers add immediately, while it may take tens of
+        // seconds to discover peers and download the torrent's file index.
+        return new PreparedTorrent(sessionId, entry.Title, entry.LastKnownFiles,
+            entry.LastKnownFiles.Length > 0,
+            state.Str("stat_string"), state.Int("connected_seeders"), state.Int("total_peers"));
     }
 
     public async Task<PreparedTorrent> PrepareAsync(string selection, CancellationToken token)
@@ -137,33 +162,102 @@ public sealed class TorrServerService
         var release = _selections.Get(selection);
         if (!release.MagnetUri.StartsWith("magnet:?xt=urn:btih:", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Для этой раздачи нет magnet-ссылки.");
-        using var state = await CommandAsync(new { action = "add", link = release.MagnetUri, title = release.Title, save_to_db = false }, token);
-        var hash = state.RootElement.Str("hash");
+
+        using var response = await CommandAsync(new
+        {
+            action = "add", link = release.MagnetUri, title = release.Title, save_to_db = false
+        }, token).ConfigureAwait(false);
+
+        var hash = response.RootElement.Str("hash");
         if (hash.Length != 40 || !hash.All(Uri.IsHexDigit))
             throw new InvalidDataException("TorrServer не вернул корректный hash.");
-        var session = Guid.NewGuid().ToString("N");
-        _sessions[session] = (hash, DateTimeOffset.UtcNow.AddHours(2));
-        return Parse(state.RootElement, session);
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var session = new TorrentSession
+        {
+            Hash = hash, Title = release.Title, MagnetUri = release.MagnetUri
+        };
+        _sessions[sessionId] = session;
+        return BuildState(sessionId, session, response.RootElement);
     }
 
-    public async Task<PreparedTorrent> PollAsync(string session, CancellationToken token)
+    private TorrentSession GetSession(string sessionId)
     {
-        if (!_sessions.TryGetValue(session, out var record) || record.Expires < DateTimeOffset.UtcNow)
-            throw new KeyNotFoundException("Сеанс истёк. Выберите раздачу повторно.");
-        using var state = await CommandAsync(new { action = "get", hash = record.Hash }, token);
-        return Parse(state.RootElement, session);
+        if (_sessions.TryGetValue(sessionId, out var entry)
+            && entry.Expires > DateTimeOffset.UtcNow)
+            return entry;
+
+        _sessions.TryRemove(sessionId, out _);
+        throw new KeyNotFoundException(
+            "Сеанс раздачи отсутствует или истёк. Выбери раздачу повторно.");
     }
 
-    public async Task<PlayInfo> SelectAsync(string session, int fileIndex, CancellationToken token)
+    private async Task<JsonDocument> RefreshFromTorrServerAsync(
+        TorrentSession entry, CancellationToken token)
     {
-        var status = await PollAsync(session, token);
+        try
+        {
+            return await CommandAsync(new { action = "get", hash = entry.Hash }, token)
+                .ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            // TorrServer disconnects idle torrents automatically. Its /get
+            // API then returns 404 even though add worked moments earlier.
+            // Re-add the same magnet instead of propagating an opaque 404.
+            await entry.RecoveryGate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                _logger.LogInformation("Online Cinema: TorrServer forgot torrent {Hash}; restoring magnet session",
+                    entry.Hash);
+                using var resurrected = await CommandAsync(new
+                {
+                    action = "add",
+                    link = entry.MagnetUri,
+                    title = entry.Title,
+                    save_to_db = false
+                }, token).ConfigureAwait(false);
+
+                var returnedHash = resurrected.RootElement.Str("hash");
+                if (returnedHash.Length != 40 || !returnedHash.All(Uri.IsHexDigit))
+                    throw new InvalidDataException("TorrServer вернул неверный hash после восстановления торрента.");
+
+                entry.Hash = returnedHash;
+                entry.LastRecovery = DateTimeOffset.UtcNow;
+            }
+            finally
+            {
+                entry.RecoveryGate.Release();
+            }
+            // The restored torrent may still be fetching metadata.
+            return await CommandAsync(new { action = "get", hash = entry.Hash }, token)
+                .ConfigureAwait(false);
+        }
+    }
+
+    public async Task<PreparedTorrent> PollAsync(string sessionId, CancellationToken token)
+    {
+        var session = GetSession(sessionId);
+        using var response = await RefreshFromTorrServerAsync(session, token)
+            .ConfigureAwait(false);
+        return BuildState(sessionId, session, response.RootElement);
+    }
+
+    public async Task<PlayInfo> SelectAsync(string sessionId, int fileIndex, CancellationToken token)
+    {
+        var status = await PollAsync(sessionId, token).ConfigureAwait(false);
+        if (!status.Ready)
+            throw new InvalidOperationException(
+                "TorrServer ещё не получил метаданные раздачи. Дождись списка файлов и повтори выбор.");
+
         var file = status.Files.FirstOrDefault(x => x.Id == fileIndex);
-        if (file is null) throw new ArgumentException("Файл не найден в раздаче.");
+        if (file is null)
+            throw new ArgumentException("Выбранный файл больше не найден в раздаче.");
         var ext = Path.GetExtension(file.Path).ToLowerInvariant();
         if (ext is not (".mp4" or ".m4v" or ".mkv" or ".webm" or ".avi" or ".ts"))
             throw new ArgumentException("Выбранный файл не является поддерживаемым видео.");
         var ticket = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
-        var record = _sessions[session];
+        var record = GetSession(sessionId);
         _tickets[ticket] = (record.Hash, fileIndex, DateTimeOffset.UtcNow.AddHours(2));
         return new PlayInfo("OnlineCinema/TorrServer/stream/" + ticket, Path.GetFileName(file.Path),
             ext is ".mp4" or ".m4v" ? "video/mp4" : ext == ".webm" ? "video/webm" : "application/octet-stream");
