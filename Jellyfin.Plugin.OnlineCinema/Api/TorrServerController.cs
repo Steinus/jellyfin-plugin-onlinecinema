@@ -1,4 +1,10 @@
 using Jellyfin.Plugin.OnlineCinema.Models;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Dlna;
+using MediaBrowser.Model.MediaInfo;
+using Microsoft.Extensions.Logging;
 using Jellyfin.Plugin.OnlineCinema.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +17,19 @@ public sealed class TorrServerController : ControllerBase
 {
     private readonly TorrServerService _server;
     private readonly NativePlaybackRegistry _native;
-    public TorrServerController(TorrServerService server, NativePlaybackRegistry native) { _server = server; _native = native; }
+    private readonly IMediaEncoder _mediaEncoder;
+    private readonly ILogger<TorrServerController> _logger;
+    public TorrServerController(
+        TorrServerService server,
+        NativePlaybackRegistry native,
+        IMediaEncoder mediaEncoder,
+        ILogger<TorrServerController> logger)
+    {
+        _server = server;
+        _native = native;
+        _mediaEncoder = mediaEncoder;
+        _logger = logger;
+    }
 
     [Authorize]
     [HttpGet("diagnose")]
@@ -46,7 +64,45 @@ public sealed class TorrServerController : ControllerBase
             var selected = await _server.SelectAsync(input.Session, input.FileIndex, token);
             var title = Path.GetFileNameWithoutExtension(selected.FileName);
             var id = _native.Register(title, selected.Url, selected.FileName);
-            return Ok(new { itemId = id.ToString("N"), fileName = selected.FileName, mode = "jellyfin-native" });
+            var probed = false;
+            var streams = 0;
+            if (Plugin.Instance?.Configuration.ProbeMediaStreams == true)
+            {
+                try
+                {
+                    var url = Request.Scheme + "://" + Request.Host +
+                        Request.PathBase.ToString().TrimEnd('/') + "/" + selected.Url.TrimStart('/');
+                    var source = new MediaSourceInfo
+                    {
+                        Id = id.ToString("N"),
+                        Path = url,
+                        Container = Path.GetExtension(selected.FileName).TrimStart('.').ToLowerInvariant(),
+                        Protocol = MediaProtocol.Http,
+                        IsRemote = true,
+                        SupportsProbing = true
+                    };
+                    using var probeTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    probeTimeout.CancelAfter(TimeSpan.FromSeconds(18));
+                    var info = await _mediaEncoder.GetMediaInfo(new MediaInfoRequest
+                    {
+                        MediaSource = source,
+                        MediaType = DlnaProfileType.Video,
+                        ExtractChapters = false
+                    }, probeTimeout.Token).ConfigureAwait(false);
+                    if (info?.MediaStreams is { Count: > 0 })
+                    {
+                        _native.EnrichMediaInfo(id, info);
+                        probed = true;
+                        streams = info.MediaStreams.Count;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !token.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "Online Cinema: FFprobe could not inspect selected video {File}", selected.FileName);
+                }
+            }
+            return Ok(new { itemId = id.ToString("N"), fileName = selected.FileName,
+                mode = "jellyfin-native", probed, streamCount = streams, transcoding = false });
         }
         catch (Exception e) when (e is ArgumentException or KeyNotFoundException)
         { return BadRequest(new { error = e.Message }); }
