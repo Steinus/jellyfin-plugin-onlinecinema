@@ -174,7 +174,7 @@
             action.dataset.action = 'play';
             action.dataset.id = itemId;
             action.dataset.serverid = client.serverId();
-            action.dataset.type = 'Movie';
+            action.dataset.type = String(read(item, 'type', 'Movie'));
             action.dataset.mediatype = 'Video';
             action.dataset.isfolder = 'false';
             host.append(action);
@@ -209,10 +209,11 @@
         // A handled click is not proof the stream started. Make a failure
         // visible rather than leaving "Открываем..." on screen indefinitely.
         await new Promise(resolve => setTimeout(resolve, 6000));
-        if (!isVideoPageOpen()) {
-            if (movedToHome) location.hash = '#/online-cinema';
-            throw new Error('Jellyfin принял команду, но не открыл видеоплеер. Проверьте запросы PlaybackInfo в журнале Jellyfin.');
-        }
+        // Embedded Android Jellyfin can open its native player outside the
+        // web routing tree. A successful Play command must not be treated as
+        // failure merely because #/video is absent or a native Activity is used.
+        if (!isVideoPageOpen())
+            console.info('Online Cinema: playback dispatched; video UI may be owned by the native client.');
     }
 
     function artworkUrl(value) {
@@ -1057,13 +1058,14 @@
             strmPicker.hidden = false;
         }
 
-        async function waitForStrmItem(statusBox) {
+        async function waitForStrmItem(statusBox, wantedName) {
             const deadline = Date.now() + 75000;
             while (Date.now() < deadline) {
                 if (!isCurrentNative(nativeId))
                     throw Error('Карточка закрыта во время ожидания индексации STRM.');
                 const entries = await refreshStrmStatus();
-                const ready = entries.find(x => !!read(x, 'itemId', null));
+                const ready = entries.find(x => String(read(x, 'name', '')) === wantedName &&
+                    !!read(x, 'itemId', null));
                 if (ready) return String(read(ready, 'itemId', ''));
                 if (statusBox?.isConnected)
                     statusBox.textContent = 'STRM создан. Ожидаем, пока Jellyfin добавит его в медиатеку...';
@@ -1087,7 +1089,8 @@
                     throw Error('Создание STRM: ' + apiError(error));
                 }
                 let realId = read(created, 'itemId', null);
-                if (!realId) realId = await waitForStrmItem(statusBox);
+                if (!realId) realId = await waitForStrmItem(statusBox,
+                    String(read(created, 'fileName', '')));
                 await refreshStrmStatus();
                 if (statusBox?.isConnected)
                     statusBox.textContent = 'Воспроизводим настоящий STRM элемент Jellyfin...';
