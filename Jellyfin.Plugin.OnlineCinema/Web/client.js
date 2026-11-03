@@ -1,8 +1,8 @@
 (function () {
     'use strict';
 
-    if (window.__onlineCinemaV0115) return;
-    window.__onlineCinemaV0115 = true;
+    if (window.__onlineCinemaV0116) return;
+    window.__onlineCinemaV0116 = true;
 
     // Jellyfin 12 usually serializes .NET DTO properties using PascalCase.
     // Other clients/configurations can use camelCase. Accept both consistently.
@@ -745,11 +745,17 @@
 
 
     const nativeDetailsCache = new Map();
+    const knownOnlineNativeIds = new Set();
     let pendingNativeDetails = '';
     let currentNativeId = '';
 
+    function normalizeGuid(value) {
+        return String(value || '').replace(/-/g, '').toLowerCase();
+    }
+
     function isCurrentNative(nativeId) {
-        return currentNativeId === nativeId && location.hash.includes(nativeId);
+        return normalizeGuid(currentNativeId) === normalizeGuid(nativeId) &&
+            normalizeGuid(getNativeIdFromHash()) === normalizeGuid(nativeId);
     }
 
     function jellyfinDetails(id) {
@@ -791,6 +797,7 @@
             const localId = read(registered, 'localItemId', null);
             const id = localId || read(registered, 'itemId', '');
             if (!id) throw Error('Не удалось зарегистрировать карточку Jellyfin');
+            if (!localId) knownOnlineNativeIds.add(normalizeGuid(id));
             jellyfinDetails(id);
         } catch (error) {
             // Some embedded Jellyfin clients do not expose the same virtual
@@ -804,10 +811,20 @@
     }
 
     function getNativeIdFromHash() {
-        const h = location.hash.replace(/^#!/, '#/');
-        if (!h.startsWith('#/details?')) return '';
-        const id = new URLSearchParams(h.split('?')[1]).get('id') || '';
-        return /^[0-9a-f]{32}$|^[0-9a-f-]{36}$/i.test(id) ? id : '';
+        // Jellyfin desktop usually uses #/details?...; the Android app
+        // can use #!/details?... . The old /^#!/ -> '#/' replacement
+        // accidentally produced #//details and disabled our controls.
+        const hash = location.hash.replace(/^#!/, '#');
+        const path = hash.replace(/^#/, '');
+        if (!/^\\/details(?:\\?|\\/|$)/i.test(path)) return '';
+        let id = '';
+        try {
+            const query = path.includes('?') ? path.split('?').slice(1).join('?') : '';
+            id = new URLSearchParams(query).get('id') || '';
+            if (!id && /^\\/details\\/[a-f0-9-]{32,36}/i.test(path))
+                id = path.split('/')[2].split('?')[0];
+        } catch (_) { return ''; }
+        return /^(?:[0-9a-f]{32}|[0-9a-f-]{36})$/i.test(id) ? id : '';
     }
 
     function torrentQuality(title) {
@@ -862,8 +879,12 @@
     }
 
     function addNativeDetailsControls(nativeId, info) {
-        const page = document.querySelector('.itemDetailPage');
-        const ribbon = page?.querySelector('.detailRibbon');
+        const page = document.querySelector('.itemDetailPage, #itemDetailPage');
+        // The detailRibbon wrapper can be different in embedded mobile
+        // layouts; the standard play button row is a more stable anchor.
+        const ribbon = page?.querySelector('.detailRibbon') ||
+            page?.querySelector('.mainDetailButtons') ||
+            page?.querySelector('.detailPagePrimaryContainer');
         if (!ribbon || !isCurrentNative(nativeId)) return false;
         const old = page.querySelector('#oc-native-controls');
         if (old?.dataset.nativeId === nativeId) return true;
@@ -1140,7 +1161,7 @@
         const nativeId = getNativeIdFromHash();
         if (!nativeId) {
             currentNativeId = '';
-            const page = document.querySelector('.itemDetailPage');
+            const page = document.querySelector('.itemDetailPage, #itemDetailPage');
             page?.classList.remove('oc-native-detail');
             page?.querySelector('#oc-native-controls')?.remove();
             return;
@@ -1153,6 +1174,7 @@
             pendingNativeDetails = nativeId;
             try {
                 info = await api('Native/item/' + encodeURIComponent(nativeId));
+                knownOnlineNativeIds.add(normalizeGuid(nativeId));
                 nativeDetailsCache.set(nativeId, info);
             } catch (error) {
                 // Normal library items do not belong to Online Cinema.
