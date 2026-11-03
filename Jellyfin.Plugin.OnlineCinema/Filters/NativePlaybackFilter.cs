@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.OnlineCinema.Filters;
 
@@ -10,7 +11,12 @@ namespace Jellyfin.Plugin.OnlineCinema.Filters;
 public sealed class NativePlaybackFilter : IAsyncActionFilter
 {
     private readonly NativePlaybackRegistry _items;
-    public NativePlaybackFilter(NativePlaybackRegistry items) => _items = items;
+    private readonly TmdbImageService _artwork;
+    public NativePlaybackFilter(NativePlaybackRegistry items, TmdbImageService artwork)
+    {
+        _items = items;
+        _artwork = artwork;
+    }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
@@ -18,9 +24,46 @@ public sealed class NativePlaybackFilter : IAsyncActionFilter
         if (action is null) { await next(); return; }
         if (!context.ActionArguments.TryGetValue("itemId", out var value) || value is not Guid id)
         { await next(); return; }
+        var req = context.HttpContext.Request;
+        var catalog = _items.GetCatalog(id);
+        if (catalog is not null)
+        {
+            if (action.ControllerName == "UserLibrary" && action.ActionName is "GetItem" or "GetItemLegacy")
+            {
+                context.Result = new OkObjectResult(_items.BuildCatalogItem(catalog));
+                return;
+            }
+            if (action.ControllerName == "Image" && action.ActionName.StartsWith("GetItemImage", StringComparison.Ordinal)
+                && context.ActionArguments.TryGetValue("imageType", out var kind) && kind is ImageType imageType)
+            {
+                var imagePath = _items.GetCatalogImage(id, imageType);
+                if (!string.IsNullOrWhiteSpace(imagePath))
+                {
+                    var parts = imagePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 4 && parts[0] == "OnlineCinema" && parts[1] == "images")
+                    {
+                        try
+                        {
+                            var image = await _artwork.GetAsync(parts[2], parts[3], req.HttpContext.RequestAborted);
+                            context.Result = new FileContentResult(image.Bytes, image.ContentType);
+                            return;
+                        }
+                        catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or KeyNotFoundException)
+                        {
+                            context.Result = new StatusCodeResult(502);
+                            return;
+                        }
+                    }
+                }
+            }
+            if (action.ControllerName == "MediaInfo" && action.ActionName is "GetPlaybackInfo" or "GetPostedPlaybackInfo")
+            {
+                context.Result = new OkObjectResult(new PlaybackInfoResponse { MediaSources = [] });
+                return;
+            }
+        }
         var item = _items.Get(id);
         if (item is null) { await next(); return; }
-        var req = context.HttpContext.Request;
         if ((action.ControllerName == "UserLibrary" && (action.ActionName == "GetItem" || action.ActionName == "GetItemLegacy"))
             || (action.ControllerName == "Items" && action.ActionName == "GetItem"))
         {
