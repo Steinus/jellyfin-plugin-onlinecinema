@@ -27,6 +27,7 @@ public sealed class NativeCatalogController : ControllerBase
     [HttpGet("options")]
     public IActionResult Options()
     {
+        Response.Headers.CacheControl = "no-store, max-age=0";
         var c = Plugin.Instance?.Configuration;
         return Ok(new
         {
@@ -40,7 +41,7 @@ public sealed class NativeCatalogController : ControllerBase
             excludeHdr = c?.ExcludeHdr ?? false,
             excludeDolbyVision = c?.ExcludeDolbyVision ?? false,
             probeMediaStreams = c?.ProbeMediaStreams ?? true,
-            playbackBackend = c?.PlaybackBackend ?? "strm",
+            playbackBackend = "strm",
             keepStrmAfterPlayback = c?.KeepStrmAfterPlayback ?? true
         });
     }
