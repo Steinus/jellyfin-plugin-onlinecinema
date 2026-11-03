@@ -16,6 +16,19 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public string TorrServerUrl { get; set; } = string.Empty;
     public string TorrServerUsername { get; set; } = string.Empty;
     public string TorrServerPassword { get; set; } = string.Empty;
+    // Behaviour of the custom Play action on an online catalog item.
+    // auto = search and play automatically; previous = replay selected media, otherwise auto;
+    // manual = open the torrent list and let the user choose.
+    public string AutoPlayMode { get; set; } = "auto";
+    public string AutoPlayQuality { get; set; } = "1080p";
+    public string AutoPlaySort { get; set; } = "quality";
+    public int AutoPlayMaxAttempts { get; set; } = 3;
+    public int AutoPlayMinSeeders { get; set; } = 0;
+    public bool Exclude4K { get; set; } = false;
+    public bool Exclude720p { get; set; } = false;
+    public bool ExcludeHdr { get; set; } = false;
+    public bool ExcludeDolbyVision { get; set; } = false;
+    public bool ProbeMediaStreams { get; set; } = true;
     public bool PreferLocalLibrary { get; set; } = true;
     public bool ShowGlobalSearchResults { get; set; } = true;
 }
