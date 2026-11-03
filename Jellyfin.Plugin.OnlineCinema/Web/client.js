@@ -534,7 +534,14 @@
         root.append(panel);
         setWorking(panel, 'Загрузка описания...');
         try {
-            const response = details(await api('details/' + encodeURIComponent(media.type) + '/' + media.id));
+            let response;
+            try {
+                response = details(await api('details/' + encodeURIComponent(media.type) + '/' + media.id));
+            } catch (error) {
+                // The catalog entry already supplies usable TMDB metadata.
+                // A separate details request must not prevent opening a card.
+                response = { item: media, runtime: 0, genres: [], seasons: [] };
+            }
             if (!validGeneration(generation)) return;
             const info = response.item;
             panel.replaceChildren();
@@ -786,11 +793,13 @@
             if (!id) throw Error('Не удалось зарегистрировать карточку Jellyfin');
             jellyfinDetails(id);
         } catch (error) {
-            if (status) {
-                showError(status, 'Не удалось открыть штатную карточку: ' + apiError(error),
-                    () => openMediaDetails(media));
-                status.append(button('oc-button', 'Открыть упрощённую карточку', () => showDetails(media)));
-            }
+            // Some embedded Jellyfin clients do not expose the same virtual
+            // item endpoints as desktop web. Never strand them on a 404.
+            console.warn('Online Cinema: native detail unavailable; using catalog fallback', apiError(error));
+            await showDetails(media);
+            const panel = current()?.querySelector('#oc-user-content');
+            if (panel) panel.prepend(dom('p', 'oc-detail-fallback',
+                'Открыта упрощённая карточка: штатная карточка Jellyfin не ответила.'));
         }
     }
 
