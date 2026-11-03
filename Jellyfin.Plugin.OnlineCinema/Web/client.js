@@ -251,7 +251,7 @@
 
     // Single path for both native Jellyfin detail cards and the fallback
     // Online Cinema catalog. No virtual item is ever prepared or played here.
-    async function createAndPlayStrm(nativeId, session, fileIndex, zone, stillActive = () => true) {
+    async function createAndPlayStrm(nativeId, session, fileIndex, zone, stillActive = () => true, mediaType = 'movie') {
         const id = Number(fileIndex);
         if (!Number.isInteger(id) || id < 1)
             throw Error('TorrServer не вернул корректный индекс видеофайла.');
@@ -266,7 +266,7 @@
             let detail = apiError(error);
             try {
                 const diagnostic = await api('Strm/diagnose');
-                const root = read(diagnostic, String(read(data, 'type', 'movie')) === 'tv'
+                const root = read(diagnostic, String(mediaType) === 'tv'
                     ? 'series' : 'movies', null);
                 if (root && (!read(root, 'configured', false) || !read(root, 'writable', false)))
                     detail += ' · Проверка папки: ' + String(read(root, 'message', 'нет данных'));
@@ -724,7 +724,7 @@
                                                         throw Error('Не удалось зарегистрировать STRM-карточку Jellyfin.');
                                                     await createAndPlayStrm(nativeId, session,
                                                         Number(read(file, 'id', 0)), zone,
-                                                        () => validGeneration(generation));
+                                                        () => validGeneration(generation), info.type);
                                                 } catch (error) {
                                                     showError(zone, apiError(error), null);
                                                 }
@@ -1191,7 +1191,7 @@
         async function selectAndPlay(session, file, statusBox) {
             await createAndPlayStrm(nativeId, session,
                 Number(read(file, 'id', 0)), statusBox,
-                () => isCurrentNative(nativeId));
+                () => isCurrentNative(nativeId), info.type);
             try { await refreshStrmStatus(); }
             catch (error) { console.warn('Online Cinema: STRM button refresh failed', apiError(error)); }
         }
