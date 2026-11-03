@@ -1140,6 +1140,30 @@
             }
             openTorrentList();
         });
+        const channelDiagnosticButton = button('oc-button', 'Диагностика Jellyfin', async () => {
+            diagnosticBox.textContent = 'Проверяем источник воспроизведения Jellyfin...';
+            try {
+                const state = await api('ChannelTest/status');
+                if (!read(state, 'ready', false)) {
+                    diagnosticBox.textContent = 'Тестовый Channel-элемент пока не зарегистрирован.';
+                    return;
+                }
+                const sources = read(state, 'sources', []);
+                diagnosticBox.textContent = 'Jellyfin: источников ' +
+                    Number(read(state, 'sourceCount', 0)) + '. ' +
+                    (Array.isArray(sources) ? sources.map(s =>
+                        String(read(s, 'container', '?')) + ': видео ' +
+                        Number(read(s, 'videoTracks', 0)) + ', аудио ' +
+                        Number(read(s, 'audioTracks', 0)) + ', субтитры ' +
+                        Number(read(s, 'subtitleTracks', 0)) + ', транскодирование ' +
+                        String(read(s, 'supportsTranscoding', false)) + ', DirectPlay ' +
+                        String(read(s, 'supportsDirectPlay', false)) + ', DirectStream ' +
+                        String(read(s, 'supportsDirectStream', false))
+                    ).join('; ') : 'Нет источников.');
+            } catch (error) {
+                diagnosticBox.textContent = 'Диагностика Jellyfin: ' + apiError(error);
+            }
+        });
         const sourceCheckButton = button('oc-button', 'Проверить видеопоток TorrServer', async () => {
             if (!lastSelectedVideoId) {
                 diagnosticBox.textContent = 'Сначала выбери раздачу и видеофайл.';
@@ -1149,7 +1173,7 @@
             catch (error) { diagnosticBox.textContent = apiError(error); }
         });
         sourceCheckButton.hidden = !lastSelectedVideoId;
-        actions.append(torrentToggle, messageBox, sourceCheckButton, diagnosticBox, host);
+        actions.append(torrentToggle, messageBox, channelDiagnosticButton, sourceCheckButton, diagnosticBox, host);
         ribbon.after(actions);
 
         function selectField(label, values, selected, onChange) {

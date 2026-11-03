@@ -16,6 +16,7 @@ public sealed class ChannelPlaybackState
 {
     private readonly object _sync = new();
     private ChannelPlaybackEntry? _active;
+    private Guid? _lastItemId;
     private long _version;
 
     public string Version => Interlocked.Read(ref _version).ToString(CultureInfo.InvariantCulture);
@@ -27,8 +28,20 @@ public sealed class ChannelPlaybackState
             var entry = new ChannelPlaybackEntry(Guid.NewGuid().ToString("N"),
                 title, fileName, source, DateTime.UtcNow);
             _active = entry;
+            _lastItemId = null;
             Interlocked.Increment(ref _version);
             return entry;
+        }
+    }
+
+    public Guid? LastItemId { get { lock (_sync) return _lastItemId; } }
+
+    public void MarkRegistered(string externalId, Guid itemId)
+    {
+        lock (_sync)
+        {
+            if (string.Equals(_active?.ExternalId, externalId, StringComparison.Ordinal))
+                _lastItemId = itemId;
         }
     }
 
@@ -72,7 +85,7 @@ public sealed record ChannelPlaybackEntry(
     };
 }
 
-public sealed class ChannelPlaybackTestChannel : IChannel, IHasCacheKey, IRequiresMediaInfoCallback
+public sealed class ChannelPlaybackTestChannel : IChannel, IHasCacheKey
 {
     public const string ChannelName = "Online Cinema — тест воспроизведения";
     private readonly ChannelPlaybackState _state;
@@ -114,15 +127,6 @@ public sealed class ChannelPlaybackTestChannel : IChannel, IHasCacheKey, IRequir
                 }
             };
         return Task.FromResult(new ChannelItemResult { Items = items, TotalRecordCount = items.Length });
-    }
-
-    public Task<IEnumerable<MediaSourceInfo>> GetChannelItemMediaInfo(
-        string id, CancellationToken cancellationToken)
-    {
-        var entry = _state.Find(id);
-        IEnumerable<MediaSourceInfo> sources = entry is null
-            ? [] : [entry.CreateMediaSource()];
-        return Task.FromResult(sources);
     }
 
     public Task<DynamicImageResponse> GetChannelImage(

@@ -2,6 +2,7 @@ using Jellyfin.Plugin.OnlineCinema.Channels;
 using Jellyfin.Plugin.OnlineCinema.Services;
 using MediaBrowser.Controller.Channels;
 using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Channels;
 using MediaBrowser.Model.Dlna;
@@ -27,18 +28,23 @@ public sealed class ChannelTestController : ControllerBase
     private readonly NativePlaybackRegistry _native;
     private readonly ChannelPlaybackState _state;
     private readonly IChannelManager _channels;
+    private readonly IMediaSourceManager _mediaSources;
+    private readonly ILibraryManager _library;
     private readonly IMediaEncoder _encoder;
     private readonly ILogger<ChannelTestController> _log;
 
     public ChannelTestController(
         TorrServerService torr, NativePlaybackRegistry native,
         ChannelPlaybackState state, IChannelManager channels,
+        IMediaSourceManager mediaSources, ILibraryManager library,
         IMediaEncoder encoder, ILogger<ChannelTestController> log)
     {
         _torr = torr;
         _native = native;
         _state = state;
         _channels = channels;
+        _mediaSources = mediaSources;
+        _library = library;
         _encoder = encoder;
         _log = log;
     }
@@ -117,6 +123,29 @@ public sealed class ChannelTestController : ControllerBase
             var item = result.Items.FirstOrDefault(i => i.ExternalId == active.ExternalId)
                 ?? throw new InvalidOperationException("Jellyfin ChannelManager не вернул созданный элемент.");
 
+            // A channel media item must have ONE canonical static media source.
+            // In 0.1.26 this source was duplicated by IRequiresMediaInfoCallback.
+            // Jellyfin then produced different playback flags for the two copies.
+            var resolved = await _mediaSources.GetPlaybackMediaSources(
+                item, null!, false, false, token).ConfigureAwait(false);
+            if (resolved.Count != 1)
+                throw new InvalidOperationException(
+                    $"Jellyfin предоставил {resolved.Count} источников вместо одного. " +
+                    "Воспроизведение остановлено до запуска плеера.");
+            var canonical = resolved[0];
+            if (!canonical.MediaStreams.Any(s => s.Type == MediaStreamType.Video))
+                throw new InvalidOperationException(
+                    "Jellyfin потерял видеоинформацию FFprobe в Channel MediaSource.");
+            if (!canonical.MediaStreams.Any(s => s.Type == MediaStreamType.Audio))
+                throw new InvalidOperationException(
+                    "Jellyfin потерял аудиодорожки FFprobe в Channel MediaSource.");
+            if (canonical.SupportsDirectPlay || canonical.SupportsDirectStream ||
+                !canonical.SupportsTranscoding)
+                throw new InvalidOperationException(
+                    "Channel MediaSource имеет неверные параметры: DirectPlay/DirectStream должен быть выключен, а транскодирование включено.");
+
+            _state.MarkRegistered(active.ExternalId, item.Id);
+
             _log.LogInformation(
                 "Online Cinema channel test ready: item {ItemId}, container {Container}, video {Video}, audio {Audio}, subtitle {Subtitle}",
                 item.Id, container,
@@ -127,6 +156,8 @@ public sealed class ChannelTestController : ControllerBase
             {
                 itemId = item.Id.ToString("N"),
                 fileName = selected.FileName,
+                mediaSourceCount = resolved.Count,
+                playbackSourceId = canonical.Id,
                 audioTracks = tracks.Count(s => s.Type == MediaStreamType.Audio),
                 subtitleTracks = tracks.Count(s => s.Type == MediaStreamType.Subtitle),
                 transcodingAllowed = true,
@@ -158,21 +189,44 @@ public sealed class ChannelTestController : ControllerBase
         }
     }
 
+    // Read-only diagnostics, via Jellyfin's authenticated ApiClient.
+    // No torrent hash, magnet, authentication data or direct stream URLs are returned.
     [HttpGet("status")]
-    public IActionResult Status()
+    public async Task<IActionResult> Status(CancellationToken token)
     {
         var active = _state.Current;
-        if (active is null) return Ok(new { ready = false });
-        var streams = active.ProbedSource.MediaStreams;
-        return Ok(new
+        var itemId = _state.LastItemId;
+        if (active is null || itemId is null) return Ok(new { ready = false });
+        var item = _library.GetItemById(itemId.Value);
+        if (item is null)
+            return Ok(new { ready = false, reason = "Channel item отсутствует в Jellyfin" });
+        try
         {
-            ready = true,
-            title = active.Title,
-            createdUtc = active.CreatedUtc,
-            audioTracks = streams.Count(s => s.Type == MediaStreamType.Audio),
-            subtitleTracks = streams.Count(s => s.Type == MediaStreamType.Subtitle),
-            directPlayDisabled = true,
-            transcodingAllowed = true
-        });
+            var sources = await _mediaSources.GetPlaybackMediaSources(
+                item, null!, false, false, token).ConfigureAwait(false);
+            return Ok(new
+            {
+                ready = true,
+                itemId,
+                sourceCount = sources.Count,
+                sources = sources.Select(source => new
+                {
+                    sourceId = source.Id,
+                    protocol = source.Protocol.ToString(),
+                    container = source.Container,
+                    videoTracks = source.MediaStreams.Count(s => s.Type == MediaStreamType.Video),
+                    audioTracks = source.MediaStreams.Count(s => s.Type == MediaStreamType.Audio),
+                    subtitleTracks = source.MediaStreams.Count(s => s.Type == MediaStreamType.Subtitle),
+                    supportsDirectPlay = source.SupportsDirectPlay,
+                    supportsDirectStream = source.SupportsDirectStream,
+                    supportsTranscoding = source.SupportsTranscoding
+                })
+            });
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException or ArgumentException)
+        {
+            _log.LogWarning(e, "Online Cinema diagnostic source retrieval failed");
+            return StatusCode(500, new { error = e.Message });
+        }
     }
 }
