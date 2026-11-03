@@ -1,4 +1,3 @@
-using System.Globalization;
 using Jellyfin.Plugin.OnlineCinema.Configuration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
@@ -21,19 +20,19 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override Guid Id => Guid.Parse("e1c3807b-47d2-4dd8-a40d-e5e57990a621");
 
-    public override string Description => "Online movie and TV catalog for Jellyfin, with TMDB metadata and optional torrent streaming integrations.";
+    public override string Description => "Browse TMDB movies and series, with separate administration settings.";
 
     public IEnumerable<PluginPageInfo> GetPages()
     {
+        // EnableInMainMenu is the ADMINISTRATION sidebar, not the user home screen.
+        // Register exactly one administrative page here. The viewer page is injected
+        // into Jellyfin Web separately via the File Transformation plugin.
         yield return new PluginPageInfo
         {
             Name = "OnlineCinema",
-            DisplayName = "Онлайн-кинотеатр",
+            DisplayName = "Онлайн-кинотеатр (настройки)",
             EnableInMainMenu = true,
-            EmbeddedResourcePath = string.Format(
-                CultureInfo.InvariantCulture,
-                "{0}.Configuration.configPage.html",
-                GetType().Namespace)
+            EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
         };
     }
 }

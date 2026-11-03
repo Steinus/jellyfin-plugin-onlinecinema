@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>Онлайн-кинотеатр</title></head>
+<body>
+<div id="OnlineCinemaPortal" data-role="page" class="page type-interior">
+<style>
+#OnlineCinemaPortal .oc-shell{padding:24px;max-width:1500px;margin:0 auto;color:inherit}
+#OnlineCinemaPortal .oc-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px}
+#OnlineCinemaPortal .oc-search{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+#OnlineCinemaPortal .oc-search input{min-width:230px;flex:1;padding:12px;color:inherit;background:rgba(128,128,128,.13);border:1px solid #7776;border-radius:8px}
+#OnlineCinemaPortal button,#OnlineCinemaPortal select{padding:10px;border:1px solid #7776;border-radius:8px;color:inherit;background:rgba(128,128,128,.16);cursor:pointer}
+#OnlineCinemaPortal button:hover{background:rgba(128,128,128,.3)}
+#OnlineCinemaPortal .oc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+#OnlineCinemaPortal .oc-tabs button[aria-pressed=true]{background:#316caa;color:white}
+#OnlineCinemaPortal .oc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:18px;margin-top:18px}
+#OnlineCinemaPortal .oc-card{text-align:left;padding:0;border:0;background:transparent;overflow:hidden}
+#OnlineCinemaPortal .oc-poster{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:9px;background:#333}
+#OnlineCinemaPortal .oc-name{font-weight:600;margin-top:7px;line-height:1.3;font-size:14px}
+#OnlineCinemaPortal .oc-meta{opacity:.7;font-size:12px;margin-top:4px}
+#OnlineCinemaPortal .oc-label{font-size:12px;margin-top:5px;font-weight:600;color:#9bd3ff}
+#OnlineCinemaPortal .oc-local{color:#91dca7}
+#OnlineCinemaPortal .oc-detail{margin-top:20px;max-width:900px}
+#OnlineCinemaPortal .oc-detail-head{display:flex;gap:22px;flex-wrap:wrap}
+#OnlineCinemaPortal .oc-detail-head img{width:180px;border-radius:8px;object-fit:contain;align-self:flex-start}
+#OnlineCinemaPortal .oc-detail-head article{flex:1;min-width:240px}
+#OnlineCinemaPortal .oc-episode{display:block;width:100%;padding:12px;text-align:left;border-bottom:1px solid #7773;margin:3px 0}
+#OnlineCinemaPortal .oc-status{opacity:.8;min-height:25px;margin-top:8px}
+#OnlineCinemaPortal .oc-pager{display:flex;gap:8px;align-items:center;justify-content:center;margin:25px 0}
+#OnlineCinemaPortal .oc-hide{display:none}
+</style>
+<div class="oc-shell">
+ <div class="oc-header"><h1>Онлайн-кинотеатр</h1><span>Каталог TMDB</span></div>
+ <div class="oc-search"><input id="ocQuery" placeholder="Название фильма или сериала..." type="search" aria-label="Поиск"><button id="ocFind" type="button">Найти</button></div>
+ <div id="ocNav" class="oc-tabs">
+  <button data-type="movie" aria-pressed="true">Фильмы</button><button data-type="tv" aria-pressed="false">Сериалы</button>
+  <select id="ocCategory" aria-label="Подборка"><option value="popular">Популярное</option><option value="top_rated">Высокий рейтинг</option><option value="now_playing">Сейчас в кино / в эфире</option></select>
+ </div>
+ <div id="ocStatus" class="oc-status"></div>
+ <div id="ocCards" class="oc-grid"></div>
+ <div id="ocPager" class="oc-pager"><button id="ocPrevious" type="button">Назад</button><span id="ocNumber"></span><button id="ocNext" type="button">Вперёд</button></div>
+ <div id="ocDetail" class="oc-detail oc-hide"></div>
+</div>
+<script>
+(function(){
+ 'use strict';
+ const root=document.querySelector('#OnlineCinemaPortal');
+ if(!root || root.dataset.initialized==='yes')return;
+ root.dataset.initialized='yes';
+ const by=id=>root.querySelector('#'+id);
+ const state={type:'movie',page:1,total:1,search:'',busy:false};
+ const status=t=>{by('ocStatus').textContent=t||'';};
+ const api=async(path)=>{
+  const result=await ApiClient.ajax({type:'GET',url:ApiClient.getUrl('OnlineCinema/'+path),dataType:'json'});
+  return typeof result==='string'?JSON.parse(result):result;
+ };
+ const e=(name,cls,text)=>{const x=document.createElement(name);if(cls)x.className=cls;if(text!=null)x.textContent=text;return x;};
+ const request=async()=>{
+  if(state.busy)return;state.busy=true;
+  by('ocDetail').classList.add('oc-hide');by('ocCards').classList.remove('oc-hide');by('ocPager').classList.remove('oc-hide');
+  status('Загрузка...');
+  try{
+   const q=state.search;
+   const path=q?'search?query='+encodeURIComponent(q)+'&type=multi&page='+state.page:
+     'discover?type='+state.type+'&category='+by('ocCategory').value+'&page='+state.page;
+   const data=await api(path);
+   by('ocCards').replaceChildren();
+   (data.items||data.Items||[]).forEach(item=>{
+    const card=e('button','oc-card');card.type='button';
+    const image=e('img','oc-poster');image.loading='lazy';image.alt=item.title||'';image.src=item.posterUrl||'';card.append(image);
+    card.append(e('div','oc-name',(item.title||'Без названия')+' ('+(item.year||'—')+')'));
+    card.append(e('div','oc-meta',item.type==='tv'?'Сериал':'Фильм'));
+    card.append(e('div','oc-label '+(item.localItemId?'oc-local':''),item.localItemId?'В библиотеке':'Онлайн'));
+    card.addEventListener('click',()=>openDetails(item));
+    by('ocCards').append(card);
+   });
+   state.total=Math.max(1,data.totalPages||data.TotalPages||1);
+   by('ocNumber').textContent=state.page+' / '+state.total;
+   by('ocPrevious').disabled=state.page<=1;by('ocNext').disabled=state.page>=state.total;
+   status(by('ocCards').childElementCount?'':'Ничего не найдено');
+  }catch(ex){status('Ошибка каталога: '+(ex?.message||'проверьте TMDB API Key и соединение'));}
+  finally{state.busy=false;}
+ };
+ const openDetails=async(item)=>{
+  by('ocCards').classList.add('oc-hide');by('ocPager').classList.add('oc-hide');
+  const panel=by('ocDetail');panel.classList.remove('oc-hide');panel.replaceChildren();status('Загрузка описания...');
+  const back=e('button','','← Назад к каталогу');back.addEventListener('click',request);panel.append(back);
+  try{
+   const details=await api('details/'+item.type+'/'+item.id);
+   const info=details.item||details.Item||item;
+   const head=e('div','oc-detail-head');
+   const poster=e('img');poster.alt=info.title||'';poster.src=info.posterUrl||'';head.append(poster);
+   const content=e('article');content.append(e('h2','',info.title+' ('+(info.year||'—')+')'));
+   content.append(e('p','',info.overview||'Описание отсутствует'));
+   content.append(e('p','',info.localItemId?'В библиотеке':'Онлайн'));
+   if(info.localItemId){
+    const local=e('button','','Открыть в библиотеке');
+    local.addEventListener('click',()=>{const href=window.location.hash.split('?')[0];window.location.hash='#!/details?id='+encodeURIComponent(info.localItemId);});
+    content.append(local);
+   }
+   const lookup=e('button','','Найти раздачи');
+   lookup.addEventListener('click',()=>{status('Поиск раздач появится на следующем этапе разработки.');});
+   content.append(lookup);head.append(content);panel.append(head);
+   const seasons=details.seasons||details.Seasons||[];
+   if(item.type==='tv'&&seasons.length){
+    panel.append(e('h3','','Сезоны'));
+    seasons.forEach(season=>{
+     const btn=e('button','',season.name||('Сезон '+season.number));
+     btn.addEventListener('click',()=>loadSeason(item.id,season.number,panel));
+     panel.append(btn);
+    });
+   }
+   status('');
+  }catch(ex){status('Не удалось открыть карточку: '+(ex?.message||'ошибка'));}
+ };
+ const loadSeason=async(id,n,panel)=>{
+  status('Загрузка серий...');
+  try{
+   const r=await api('seasons/'+id+'/'+n);
+   panel.querySelectorAll('.oc-episode').forEach(x=>x.remove());
+   (r.episodes||r.Episodes||[]).forEach(episode=>{
+    const line=e('button','oc-episode','Серия '+episode.number+': '+(episode.name||'Без названия'));
+    line.title=episode.overview||'';
+    line.addEventListener('click',()=>status('Выбор потока для серии появится в следующей версии.'));
+    panel.append(line);
+   });status('');
+  }catch(ex){status('Ошибка загрузки сезона');}
+ };
+ by('ocFind').addEventListener('click',()=>{state.search=by('ocQuery').value.trim();state.page=1;request();});
+ by('ocQuery').addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();by('ocFind').click();}});
+ root.querySelectorAll('[data-type]').forEach(btn=>btn.addEventListener('click',()=>{
+  state.type=btn.dataset.type;state.search='';by('ocQuery').value='';state.page=1;
+  root.querySelectorAll('[data-type]').forEach(x=>x.setAttribute('aria-pressed',String(x===btn)));
+  request();
+ }));
+ by('ocCategory').addEventListener('change',()=>{state.page=1;state.search='';by('ocQuery').value='';request();});
+ by('ocPrevious').addEventListener('click',()=>{if(state.page>1){state.page--;request();}});
+ by('ocNext').addEventListener('click',()=>{if(state.page<state.total){state.page++;request();}});
+ root.addEventListener('pageshow',()=>{if(!by('ocCards').childElementCount)request();});
+ request();
+})();
+</script>
+</div></body></html>
