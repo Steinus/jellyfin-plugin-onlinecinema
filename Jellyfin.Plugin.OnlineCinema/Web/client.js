@@ -811,18 +811,19 @@
     }
 
     function getNativeIdFromHash() {
-        // Jellyfin desktop usually uses #/details?...; the Android app
-        // can use #!/details?... . The old /^#!/ -> '#/' replacement
-        // accidentally produced #//details and disabled our controls.
-        const hash = location.hash.replace(/^#!/, '#');
+        // Normalize desktop #/details and Android #!/details hashes without
+        // accidentally generating #//details.
+        const hash = location.hash.startsWith('#!') ?
+            '#' + location.hash.slice(2) : location.hash;
         const path = hash.replace(/^#/, '');
-        if (!/^\\/details(?:\\?|\\/|$)/i.test(path)) return '';
+        if (path !== '/details' && !path.startsWith('/details?') &&
+            !path.startsWith('/details/')) return '';
         let id = '';
         try {
-            const query = path.includes('?') ? path.split('?').slice(1).join('?') : '';
+            const query = path.includes('?') ? path.slice(path.indexOf('?') + 1) : '';
             id = new URLSearchParams(query).get('id') || '';
-            if (!id && /^\\/details\\/[a-f0-9-]{32,36}/i.test(path))
-                id = path.split('/')[2].split('?')[0];
+            if (!id && path.startsWith('/details/'))
+                id = path.slice('/details/'.length).split('?')[0].split('/')[0];
         } catch (_) { return ''; }
         return /^(?:[0-9a-f]{32}|[0-9a-f-]{36})$/i.test(id) ? id : '';
     }
