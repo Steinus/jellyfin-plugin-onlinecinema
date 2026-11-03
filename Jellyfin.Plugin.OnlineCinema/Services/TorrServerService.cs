@@ -275,6 +275,89 @@ public sealed class TorrServerService
             Path.GetFileName(file.Path), contentType);
     }
 
+    /// <summary>
+    /// Checks whether TorrServer can actually deliver the first bytes of the
+    /// selected file. This is deliberately distinct from /torrents action=list
+    /// and does not disclose magnet, hash, or playback-ticket values.
+    /// </summary>
+    public async Task<object> CheckPlaybackAsync(string ticket, CancellationToken token)
+    {
+        if (!_tickets.TryGetValue(ticket, out var record) ||
+            record.Expires <= DateTimeOffset.UtcNow)
+            return new
+            {
+                ok = false,
+                status = 404,
+                receivedBytes = 0,
+                message = "Временная ссылка видео устарела. Выберите раздачу заново."
+            };
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(18));
+        try
+        {
+            using var request = Request(HttpMethod.Get, "play/" + record.Hash + "/" + record.Index);
+            request.Headers.Range = new RangeHeaderValue(0, 1023);
+            using var response = await _clients.CreateClient("OnlineCinemaTorrServerStream")
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
+                .ConfigureAwait(false);
+
+            var status = (int)response.StatusCode;
+            var receivedBytes = 0;
+            if (response.IsSuccessStatusCode)
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token)
+                    .ConfigureAwait(false);
+                var probe = new byte[1024];
+                receivedBytes = await stream.ReadAsync(probe, timeout.Token).ConfigureAwait(false);
+            }
+            var ok = response.IsSuccessStatusCode && receivedBytes > 0;
+            var message = !response.IsSuccessStatusCode
+                ? "TorrServer не отдал видеофайл. Проверьте активность торрента и журнал TorrServer."
+                : receivedBytes == 0
+                    ? "TorrServer ответил, но первые байты видео ещё недоступны."
+                    : "TorrServer отдаёт данные. Если штатный плеер показывает Source error, проверьте выбранный видеокодек, прямое воспроизведение и транскодирование.";
+            _logger.LogInformation(
+                "Online Cinema playback check: TorrServer status={Status}, bytes={Bytes}, fileIndex={Index}",
+                status, receivedBytes, record.Index);
+            return new
+            {
+                ok,
+                status,
+                receivedBytes,
+                contentType = response.Content.Headers.ContentType?.MediaType ?? record.ContentType,
+                rangeSupported = response.StatusCode == HttpStatusCode.PartialContent,
+                message
+            };
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            return new
+            {
+                ok = false, status = 504, receivedBytes = 0,
+                message = "TorrServer не отдал начальные байты видео за 18 секунд."
+            };
+        }
+        catch (HttpRequestException error)
+        {
+            _logger.LogWarning(error, "Online Cinema: stream check failed for fileIndex={FileIndex}", record.Index);
+            return new
+            {
+                ok = false, status = 502, receivedBytes = 0,
+                message = "Ошибка соединения с TorrServer во время запроса видео: " + error.GetBaseException().Message
+            };
+        }
+        catch (IOException error)
+        {
+            _logger.LogWarning(error, "Online Cinema: stream read failed for fileIndex={FileIndex}", record.Index);
+            return new
+            {
+                ok = false, status = 502, receivedBytes = 0,
+                message = "Ошибка чтения данных видео: " + error.Message
+            };
+        }
+    }
+
     public async Task ProxyAsync(string ticket, HttpRequest incoming, HttpResponse outgoing, CancellationToken token)
     {
         if (!_tickets.TryGetValue(ticket, out var record) || record.Expires < DateTimeOffset.UtcNow)
