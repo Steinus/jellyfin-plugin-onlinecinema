@@ -24,11 +24,14 @@ public sealed class NativePlaybackRegistry
 
     public NativePlaybackRegistry(IServerApplicationHost host) => _host = host;
 
-    public Guid Register(string title, string streamPath, string fileName)
+    public Guid Register(string title, string streamPath, string fileName, string? proxyPath = null)
     {
         var id = Guid.NewGuid();
         var ext = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
-        _items[id] = new NativeItem(id, title, streamPath, ext, DateTimeOffset.UtcNow.AddHours(2));
+        // Keep the private ticket separate from a direct TorrServer URL:
+        // the ticket is used only for server-side status checks.
+        _items[id] = new NativeItem(id, title, streamPath, ext,
+            DateTimeOffset.UtcNow.AddHours(2), proxyPath ?? streamPath);
         Prune();
         return id;
     }
@@ -131,8 +134,13 @@ public sealed class NativePlaybackRegistry
     private MediaSourceInfo Source(NativeItem entry, HttpRequest request)
     {
         _probeResults.TryGetValue(entry.Id, out var probed);
+        // A direct TorrServer URL is passed through unchanged to the
+        // Jellyfin client. The old proxied path remains supported.
         var path = request.PathBase.ToString().TrimEnd('/') + "/" + entry.StreamPath.TrimStart('/');
-        var absolute = request.Scheme + "://" + request.Host + path;
+        var absolute = Uri.TryCreate(entry.StreamPath, UriKind.Absolute, out var direct)
+            && direct.Scheme is "http" or "https"
+            ? direct.AbsoluteUri
+            : request.Scheme + "://" + request.Host + path;
         return new MediaSourceInfo
         {
             Id = entry.Id.ToString("N"),
@@ -191,9 +199,12 @@ public sealed class NativePlaybackRegistry
         };
 
     public string StreamRedirect(NativeItem entry, HttpRequest request)
-        => request.PathBase.ToString().TrimEnd('/') + "/" + entry.StreamPath.TrimStart('/');
+        => Uri.TryCreate(entry.StreamPath, UriKind.Absolute, out var direct)
+           && direct.Scheme is "http" or "https"
+            ? direct.AbsoluteUri
+            : request.PathBase.ToString().TrimEnd('/') + "/" + entry.StreamPath.TrimStart('/');
 }
 
-public sealed record NativeItem(Guid Id, string Title, string StreamPath, string Container, DateTimeOffset Expires);
+public sealed record NativeItem(Guid Id, string Title, string StreamPath, string Container, DateTimeOffset Expires, string ProxyPath);
 
 public sealed record NativeCatalogEntry(Guid Id, CatalogDetails Details, DateTimeOffset Expires);
