@@ -401,6 +401,15 @@ public sealed class TorrServerService
         return new Uri(ServerUrl(), resource).AbsoluteUri;
     }
 
+    // Used only to migrate files created by the older Online Cinema /play
+    // implementation to the compatible /stream link. Never use for new files.
+    public string GetLegacyPlaybackUrl(string sessionId, int fileIndex)
+    {
+        var session = GetSession(sessionId);
+        return new Uri(ServerUrl(), "play/" + session.Hash + "/" +
+            fileIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)).AbsoluteUri;
+    }
+
     public async Task ProxyAsync(string ticket, HttpRequest incoming, HttpResponse outgoing, CancellationToken token)
     {
         if (!_tickets.TryGetValue(ticket, out var record) || record.Expires < DateTimeOffset.UtcNow)
