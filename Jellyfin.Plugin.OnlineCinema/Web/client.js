@@ -663,27 +663,45 @@
                                                 zone.append(button('oc-button', 'Проверить ещё раз', showFiles));
                                                 return;
                                             }
-                                            zone.append(dom('h3','','Выберите видеофайл'));
-                                            files.filter(file => /\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(read(file,'path',''))).forEach(file => {
-                                                const label = read(file,'path','');
-                                                const index = Number(read(file,'id',0));
-                                                zone.append(button('oc-file-button', label, async () => {
-                                                    setWorking(zone, 'Подготавливаем воспроизведение...');
-                                                    try {
-                                                        const registered = await apiPost('Native/open/' +
-                                                            encodeURIComponent(info.type) + '/' +
-                                                            encodeURIComponent(info.id), {});
-                                                        const nativeId = read(registered, 'itemId', '');
-                                                        const localId = read(registered, 'localItemId', '');
-                                                        if (localId) {
-                                                            await launchJellyfinPlayer(localId, zone);
-                                                            return;
-                                                        }
-                                                        if (!nativeId) throw Error('Не удалось зарегистрировать STRM-карточку Jellyfin.');
-                                                        await createAndPlayStrm(nativeId, session, index, zone,
-                                                            () => validGeneration(generation));
-                                                    } catch (error) {showError(zone,apiError(error),null);}
-                                                }));
+                                            const videos = files.filter(file =>
+                                                /\\.(mp4|m4v|mkv|webm|avi|ts)$/i.test(
+                                                    String(read(file, 'path', ''))));
+                                            const playFile = async (file) => {
+                                                setWorking(zone, 'Создаём STRM файл в Jellyfin...');
+                                                try {
+                                                    const registered = await apiPost('Native/open/' +
+                                                        encodeURIComponent(info.type) + '/' +
+                                                        encodeURIComponent(info.id), {});
+                                                    const localId = read(registered, 'localItemId', '');
+                                                    if (localId) {
+                                                        await launchJellyfinPlayer(localId, zone);
+                                                        return;
+                                                    }
+                                                    const nativeId = read(registered, 'itemId', '');
+                                                    if (!nativeId)
+                                                        throw Error('Не удалось зарегистрировать STRM-карточку Jellyfin.');
+                                                    await createAndPlayStrm(nativeId, session,
+                                                        Number(read(file, 'id', 0)), zone,
+                                                        () => validGeneration(generation));
+                                                } catch (error) {
+                                                    showError(zone, apiError(error), null);
+                                                }
+                                            };
+                                            if (!videos.length) {
+                                                zone.append(dom('p', 'oc-message',
+                                                    'В раздаче нет распознанных видеофайлов.'));
+                                                return;
+                                            }
+                                            // One-video releases are launched from the
+                                            // torrent button without an unnecessary second tap.
+                                            if (videos.length === 1) {
+                                                await playFile(videos[0]);
+                                                return;
+                                            }
+                                            zone.append(dom('h3', '', 'Выберите видеофайл'));
+                                            videos.forEach(file => {
+                                                zone.append(button('oc-file-button',
+                                                    String(read(file, 'path', 'Видео')), () => playFile(file)));
                                             });
                                         };
                                         await showFiles();
