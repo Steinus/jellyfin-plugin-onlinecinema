@@ -224,14 +224,14 @@ public sealed class TorrServerService
 
                 entry.Hash = returnedHash;
                 entry.LastRecovery = DateTimeOffset.UtcNow;
+                // 'add' itself returns a status document. Do not immediately
+                // issue another 'get': the torrent may still be initializing.
+                return JsonDocument.Parse(resurrected.RootElement.GetRawText());
             }
             finally
             {
                 entry.RecoveryGate.Release();
             }
-            // The restored torrent may still be fetching metadata.
-            return await CommandAsync(new { action = "get", hash = entry.Hash }, token)
-                .ConfigureAwait(false);
         }
     }
 
