@@ -131,13 +131,13 @@ public sealed class CatalogService
                 HasAnyProviderId = new Dictionary<string,string> { ["Tmdb"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture) },
                 IncludeItemTypes = [type == "movie" ? BaseItemKind.Movie : BaseItemKind.Series],
                 Recursive = true,
-                Limit = 1
+                Limit = 25
             };
-            BaseItem? first = _library.GetItemsResult(query).Items.FirstOrDefault();
-            // STRM created by this plugin belongs to the online catalog.
-            // Do not treat it as a physical local copy: keep its Torrent/STRM
-            // buttons visible when the user returns to the catalog.
-            local = _strm.IsManagedLibraryItem(first) ? null : first?.Id.ToString("D");
+            // Prefer a genuine physical film or series over our generated
+            // STRM when both share the same TMDB ID.
+            BaseItem? real = _library.GetItemsResult(query).Items
+                .FirstOrDefault(item => !_strm.IsManagedLibraryItem(item));
+            local = real?.Id.ToString("D");
         }
         catch (Exception ex)
         {
