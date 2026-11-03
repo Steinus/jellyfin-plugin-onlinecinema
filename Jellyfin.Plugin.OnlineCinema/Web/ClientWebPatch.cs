@@ -42,8 +42,8 @@ public static class ClientWebPatch
             string.Empty, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         const string injection =
-            "<link data-online-cinema-integration rel=\"stylesheet\" href=\"../OnlineCinema/Web/client.css?v=0.1.24\" />" +
-            "<script defer src=\"../OnlineCinema/Web/client.js?v=0.1.24\"></script>";
+            "<link data-online-cinema-integration rel=\"stylesheet\" href=\"../OnlineCinema/Web/client.css?v=0.1.25\" />" +
+            "<script defer src=\"../OnlineCinema/Web/client.js?v=0.1.25\"></script>";
         WebIntegrationStatus.RecordPatch();
         return clean.Replace("</head>", injection + "</head>", StringComparison.OrdinalIgnoreCase);
     }
