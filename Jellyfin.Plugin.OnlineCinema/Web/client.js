@@ -138,37 +138,19 @@
         });
     }
 
-    // ApiClient.ajax normalizes a 400 response to "Bad Request" and on
-    // Android discards the JSON payload. Use an authenticated fetch for STRM
-    // creation so the server's exact validation error is shown to the user.
+    // Always use Jellyfin's authenticated API client here. Android and other
+    // Jellyfin clients may require the MediaBrowser Authorization header,
+    // whereas a standalone fetch with X-Emby-Token is rejected with HTTP 401.
+    // The same client already authenticates torrent search/prepare requests.
     async function postStrmCreate(data) {
-        const client = window.ApiClient;
-        const token = typeof client?.accessToken === 'function' ? client.accessToken() : '';
-        if (!token || typeof fetch !== 'function')
-            return apiPost('Strm/create', data);
-
-        const response = await fetch(client.getUrl('OnlineCinema/Strm/create'), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Emby-Token': token
-            },
-            credentials: 'same-origin',
-            cache: 'no-store',
-            body: JSON.stringify(data)
-        });
-        const raw = await response.text();
-        let parsed = {};
-        try { parsed = raw ? JSON.parse(raw) : {}; }
-        catch (_) { /* non-JSON errors (e.g. an upstream reverse proxy) */ }
-        if (!response.ok) {
-            const detail = String(read(parsed, 'error', null) ||
-                read(parsed, 'detail', null) ||
-                (raw && !raw.trim().startsWith('<') ? raw.slice(0, 300) : '') ||
-                response.statusText || 'Ошибка сервера');
-            throw Error('HTTP ' + response.status + ': ' + detail);
+        try {
+            return await apiPost('Strm/create', data);
+        } catch (error) {
+            const detail = apiError(error);
+            // Preserve any useful server validation message that the client
+            // provides, but never issue an unauthenticated fallback request.
+            throw new Error(detail);
         }
-        return parsed;
     }
 
     function isVideoPageOpen() {
