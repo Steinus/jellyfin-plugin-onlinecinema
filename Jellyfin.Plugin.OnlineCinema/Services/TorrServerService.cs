@@ -358,6 +358,18 @@ public sealed class TorrServerService
         }
     }
 
+    /// <summary>
+    /// Direct network URL intended for Jellyfin clients with access to the
+    /// configured TorrServer host. This does not embed credentials in a URL.
+    /// Only call for a file that SelectAsync has already validated.
+    /// </summary>
+    public string GetDirectPlaybackUrl(string sessionId, int fileIndex)
+    {
+        var session = GetSession(sessionId);
+        return new Uri(ServerUrl(), "play/" + session.Hash + "/" +
+            fileIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)).AbsoluteUri;
+    }
+
     public async Task ProxyAsync(string ticket, HttpRequest incoming, HttpResponse outgoing, CancellationToken token)
     {
         if (!_tickets.TryGetValue(ticket, out var record) || record.Expires < DateTimeOffset.UtcNow)
